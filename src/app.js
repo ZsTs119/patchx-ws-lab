@@ -17,6 +17,34 @@ const REST_DEPENDENT_CAPABILITIES = ["personalities", "logs", "rounds", "logDeta
 
 const builtInEndpointConfigs = [
   {
+    id: "sprite-prod",
+    label: "小精灵生产环境",
+    ws: "wss://ai-chat.patch-x.cn:8460",
+    rest: "https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
+    id: "sprite-test",
+    label: "小精灵测试环境",
+    ws: "wss://121.43.112.101:19988",
+    rest: "https://121.43.112.101:19988/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
+    id: "sprite-ja",
+    label: "小精灵日语环境",
+    ws: "wss://121.43.112.101:19987",
+    rest: "https://121.43.112.101:19987/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
+    id: "sprite-en",
+    label: "小精灵英语环境",
+    ws: "wss://199.223.236.153:19988",
+    rest: "https://199.223.236.153:19988/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
     id: "local",
     label: "本机默认",
     ws: "ws://localhost:8460",
@@ -30,7 +58,7 @@ const builtInEndpointConfigs = [
   },
   {
     id: "page-host",
-    label: "当前主机",
+    label: "同域部署",
     ws: () => `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname || "127.0.0.1"}:8460`,
     rest: () => `${window.location.protocol === "https:" ? "https" : "http"}://${window.location.hostname || "127.0.0.1"}:8410/api/v1/dev/ws-lab`
   }
@@ -330,10 +358,11 @@ const scenarioRunner = new ScenarioRunner({
   getHello: () => buildHello(),
   getText: () => dom.textMessageInput.value.trim() || "你好，做一次冒烟测试。",
   getFilters: () => buildIdentityLogFilters(),
-  getWsUrl: () => dom.wsUrlInput.value.trim(),
+  getWsUrl: () => normalizeWsInput(dom.wsUrlInput.value),
   getIdentity: () => readIdentityFromInputs(),
   getCapabilities: () => exportCapabilities(),
   tools: {
+    validateConnection: () => assertEndpointCompatibleWithPage(normalizeWsInput(dom.wsUrlInput.value), normalizeRestInput(dom.restBaseInput.value)),
     connectHello: () => openWsAndSendHello(),
     setAudioProfile: (profile) => applyScenarioAudioProfile(profile),
     streamSilence: (durationMs) => streamScenarioSilence(durationMs)
@@ -371,6 +400,8 @@ const state = {
   rounds: [],
   selectedRoundId: "",
   selectedSessionId: "",
+  restoredEndpointFromStorage: false,
+  urlEndpointOverride: false,
   hasNewRounds: false,
   roundDetailCards: [],
   pendingExpectedInputTexts: []
@@ -405,6 +436,7 @@ function init() {
   restoreState();
   registerCustomProtocolTemplates();
   applyUrlParams();
+  applyRuntimeDefaultEndpoint();
   applyDisplayMode("pure");
   renderEndpointPresets();
   syncEndpointPresetSelections();
@@ -912,6 +944,56 @@ function normalizeEndpointValue(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+function normalizeWsInput(value) {
+  const raw = normalizeEndpointValue(value);
+  if (!raw) return "";
+  return /^wss?:\/\//i.test(raw) ? raw : `wss://${raw}`;
+}
+
+function normalizeRestInput(value) {
+  const raw = normalizeEndpointValue(value);
+  if (!raw) return "";
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const url = new URL(withScheme);
+    if (!url.pathname || url.pathname === "/") {
+      url.pathname = "/api/v1/dev/ws-lab";
+    }
+    return normalizeEndpointValue(url.toString());
+  } catch {
+    return withScheme;
+  }
+}
+
+function isLocalRuntime() {
+  const host = (window.location.hostname || "").toLowerCase();
+  return !host || host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost");
+}
+
+function isHostedStaticRuntime() {
+  return window.location.protocol === "https:" && !isLocalRuntime();
+}
+
+function getDefaultEndpointIdForRuntime() {
+  return isHostedStaticRuntime() ? "sprite-prod" : "local";
+}
+
+function applyRuntimeDefaultEndpoint() {
+  if (state.restoredEndpointFromStorage || state.urlEndpointOverride) return;
+  const config = getEndpointConfigById(getDefaultEndpointIdForRuntime());
+  if (config) applyEndpointConfig(config);
+}
+
+function assertEndpointCompatibleWithPage(ws, rest) {
+  if (window.location.protocol !== "https:") return;
+  if (/^ws:\/\//i.test(ws)) {
+    throw new Error("当前页面是 HTTPS，请使用 wss:// WebSocket 地址；本地 ws:// 调试请用 http://127.0.0.1:5177/ 打开。");
+  }
+  if (/^http:\/\//i.test(rest)) {
+    throw new Error("当前页面是 HTTPS，请使用 https:// REST 地址；本地 http:// 诊断请用 http://127.0.0.1:5177/ 打开。");
+  }
+}
+
 function refreshEndpointSelectControls() {
   refreshSelectControl(dom.endpointPresetSelect);
 }
@@ -1046,8 +1128,8 @@ function startNewEndpointConfig() {
 }
 
 function applyEndpointDialogDraft() {
-  const ws = normalizeEndpointValue(dom.endpointWsInput.value);
-  const rest = normalizeEndpointValue(dom.endpointRestInput.value);
+  const ws = normalizeWsInput(dom.endpointWsInput.value);
+  const rest = normalizeRestInput(dom.endpointRestInput.value);
   const validationError = validateEndpointDraft(ws, rest);
   if (validationError) {
     setEndpointDialogStatus(validationError, "error");
@@ -1066,8 +1148,8 @@ function applyEndpointDialogDraft() {
 function saveEndpointDialogConfig() {
   const editId = dom.endpointDialog.dataset.editId;
   const label = dom.endpointNameInput.value.trim();
-  const ws = normalizeEndpointValue(dom.endpointWsInput.value);
-  const rest = normalizeEndpointValue(dom.endpointRestInput.value);
+  const ws = normalizeWsInput(dom.endpointWsInput.value);
+  const rest = normalizeRestInput(dom.endpointRestInput.value);
   const validationError = validateEndpointDialogDraft(label, ws, rest);
   if (validationError) {
     setEndpointDialogStatus(validationError, "error");
@@ -1113,8 +1195,8 @@ function deleteEndpointDialogConfig() {
     setEndpointDialogStatus("内置或未保存配置不能删除。", "error");
     return;
   }
-  const ws = normalizeEndpointValue(dom.endpointWsInput.value || active.ws);
-  const rest = normalizeEndpointValue(dom.endpointRestInput.value || active.rest);
+  const ws = normalizeWsInput(dom.endpointWsInput.value || active.ws);
+  const rest = normalizeRestInput(dom.endpointRestInput.value || active.rest);
   state.customEndpointConfigs = state.customEndpointConfigs.filter((item) => item.id !== editId);
   renderEndpointPresets();
   dom.wsUrlInput.value = ws;
@@ -1679,7 +1761,10 @@ async function connectAndHello() {
 
 async function openWsAndSendHello() {
   const identity = readIdentityFromInputs();
-  await wsClient.connect(dom.wsUrlInput.value.trim(), identity.deviceId);
+  const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
+  const restBase = normalizeRestInput(dom.restBaseInput.value);
+  assertEndpointCompatibleWithPage(wsUrl, restBase);
+  await wsClient.connect(wsUrl, identity);
   wsClient.sendJson(buildHello());
   state.activeAudioProfile = getDraftAudioProfile();
   updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
@@ -2525,7 +2610,7 @@ async function runSmokeScenario() {
       await waitForActiveSession();
     }
     const report = scenario.builtin
-      ? await scenarioRunner.runRoleTextSmoke(dom.wsUrlInput.value.trim(), readIdentityFromInputs())
+      ? await scenarioRunner.runRoleTextSmoke(normalizeWsInput(dom.wsUrlInput.value), readIdentityFromInputs())
       : await scenarioRunner.runDslScenario(scenario);
     report.ws_session_id = wsClient.sessionId;
     report.binary_metrics = store.summary();
@@ -3754,8 +3839,16 @@ function updateQuickConnectionButton(stateName = "idle") {
 
 function applyUrlParams() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get("ws")) dom.wsUrlInput.value = params.get("ws");
-  if (params.get("rest")) dom.restBaseInput.value = params.get("rest");
+  const ws = params.get("ws");
+  const rest = params.get("rest");
+  if (ws) {
+    dom.wsUrlInput.value = normalizeWsInput(ws);
+    state.urlEndpointOverride = true;
+  }
+  if (rest) {
+    dom.restBaseInput.value = normalizeRestInput(rest);
+    state.urlEndpointOverride = true;
+  }
   const role = params.get("role");
   if (role && ROLE_CODES.includes(role)) {
     state.selectedRole = role;
@@ -3807,8 +3900,8 @@ function profilesEqual(a, b) {
 
 function saveState() {
   const data = {
-    wsUrl: dom.wsUrlInput?.value,
-    restBase: dom.restBaseInput?.value,
+    wsUrl: normalizeWsInput(dom.wsUrlInput?.value),
+    restBase: normalizeRestInput(dom.restBaseInput?.value),
     clientTab: state.clientTab,
     selectedRole: state.selectedRole,
     identity: readIdentityFromInputsSafe(),
@@ -3854,8 +3947,14 @@ function restoreState() {
   if (!raw) return;
   try {
     const saved = JSON.parse(raw);
-    if (saved.wsUrl) dom.wsUrlInput.value = saved.wsUrl;
-    if (saved.restBase) dom.restBaseInput.value = saved.restBase;
+    if (saved.wsUrl) {
+      dom.wsUrlInput.value = normalizeWsInput(saved.wsUrl);
+      state.restoredEndpointFromStorage = true;
+    }
+    if (saved.restBase) {
+      dom.restBaseInput.value = normalizeRestInput(saved.restBase);
+      state.restoredEndpointFromStorage = true;
+    }
     state.customProtocolTemplates = normalizeSavedProtocolTemplates(saved.customProtocolTemplates);
     if (saved.clientTab) {
       state.clientTab = saved.clientTab;

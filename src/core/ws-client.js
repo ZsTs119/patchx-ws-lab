@@ -15,13 +15,12 @@ export class WsClient {
     return this.readyState === WebSocket.OPEN;
   }
 
-  async connect(baseUrl, deviceId) {
+  async connect(baseUrl, identity = {}) {
     if (this.socket && this.readyState !== WebSocket.CLOSED) {
       this.disconnect();
     }
 
-    const url = new URL(baseUrl);
-    url.searchParams.set("device_id", deviceId);
+    const url = buildConnectionUrl(baseUrl, identity);
     this.onStateChange("connecting");
 
     await new Promise((resolve, reject) => {
@@ -133,4 +132,14 @@ export class WsClient {
       throw new Error("WebSocket 尚未连接");
     }
   }
+}
+
+function buildConnectionUrl(baseUrl, identity = {}) {
+  const url = new URL(baseUrl);
+  const normalized = typeof identity === "string" ? { deviceId: identity } : identity || {};
+  const deviceId = normalized.deviceId || normalized.device_id || "";
+  const userId = normalized.userId || normalized.user_id || "";
+  if (deviceId) url.searchParams.set("device_id", deviceId);
+  if (userId) url.searchParams.set("user_id", userId);
+  return url;
 }

@@ -77,12 +77,31 @@ server {
 
 如果公司内网要求 HTTPS，推荐把 WS Lab 和目标 AI Server 通过同一个网关暴露，减少 CORS 和混合内容问题。
 
+公开 GitHub Pages 地址：
+
+```text
+https://zsts119.github.io/patchx-ws-lab/
+```
+
+GitHub Pages 是 HTTPS 页面，首次打开默认选择 `小精灵生产环境`。如果要连接本地 `ws://` / `http://` 服务，请改用本地静态服务 `http://127.0.0.1:5177/`。
+
 ## 访问不同环境
 
-页面顶部的环境选择会成对管理 WS 和 REST 地址。默认本地地址是：
+页面顶部的环境选择会成对管理 WS 和 REST 地址。本地访问时默认本机环境：
 
-- WebSocket: `ws://127.0.0.1:8460`
-- Dev REST: `http://127.0.0.1:8410/api/v1/dev/ws-lab`
+- WebSocket: `ws://localhost:8460`
+- Dev REST: `http://localhost:8410/api/v1/dev/ws-lab`
+
+内置环境里也保留了 `127.0.0.1` 选项，方便本机服务对 localhost 和 loopback 行为不一致时切换。
+
+公开部署内置小精灵环境：
+
+| 环境 | WebSocket | Dev REST |
+|------|-----------|----------|
+| 小精灵生产环境 | `wss://ai-chat.patch-x.cn:8460` | `https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab` |
+| 小精灵测试环境 | `wss://121.43.112.101:19988` | `https://121.43.112.101:19988/api/v1/dev/ws-lab` |
+| 小精灵日语环境 | `wss://121.43.112.101:19987` | `https://121.43.112.101:19987/api/v1/dev/ws-lab` |
+| 小精灵英语环境 | `wss://199.223.236.153:19988` | `https://199.223.236.153:19988/api/v1/dev/ws-lab` |
 
 也可以通过 URL 参数直接指定：
 
@@ -96,6 +115,14 @@ https://ws-lab.internal.example.com/?ws=wss%3A%2F%2Fai.example.com%2Fws&rest=htt
 - `https://` REST
 
 如果 REST 诊断接口跨域，目标服务必须允许 CORS；更推荐用同域反向代理，把静态页、WS 和 REST 放在同一个域名下。
+
+连接 WebSocket 时，WS Lab 会自动在握手 URL 上补齐当前身份：
+
+```text
+?device_id=<当前设备ID>&user_id=<当前用户ID>
+```
+
+如果原 WS URL 已经带有其他 query 参数，页面会保留它们，只覆盖 `device_id` 和 `user_id`。这些 query 不会回写到输入框，避免地址越连越长。
 
 ## 同域反向代理建议
 

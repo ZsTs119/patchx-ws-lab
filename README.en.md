@@ -88,12 +88,31 @@ server {
 
 For an HTTPS deployment, prefer serving WS Lab, WebSocket, and Dev REST through the same gateway. This avoids most CORS and mixed-content issues.
 
+Public GitHub Pages URL:
+
+```text
+https://zsts119.github.io/patchx-ws-lab/
+```
+
+GitHub Pages is served over HTTPS. On first visit, WS Lab selects `小精灵生产环境` by default. If you need to test local `ws://` / `http://` services, run WS Lab locally at `http://127.0.0.1:5177/`.
+
 ## Target Environments
 
 The top environment selector stores WebSocket and REST URLs as a pair. The default local values are:
 
-- WebSocket: `ws://127.0.0.1:8460`
-- Dev REST: `http://127.0.0.1:8410/api/v1/dev/ws-lab`
+- WebSocket: `ws://localhost:8460`
+- Dev REST: `http://localhost:8410/api/v1/dev/ws-lab`
+
+A `127.0.0.1` preset is also built in for local services that behave differently between localhost and loopback.
+
+Built-in remote environments:
+
+| Environment | WebSocket | Dev REST |
+|-------------|-----------|----------|
+| 小精灵生产环境 | `wss://ai-chat.patch-x.cn:8460` | `https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab` |
+| 小精灵测试环境 | `wss://121.43.112.101:19988` | `https://121.43.112.101:19988/api/v1/dev/ws-lab` |
+| 小精灵日语环境 | `wss://121.43.112.101:19987` | `https://121.43.112.101:19987/api/v1/dev/ws-lab` |
+| 小精灵英语环境 | `wss://199.223.236.153:19988` | `https://199.223.236.153:19988/api/v1/dev/ws-lab` |
 
 You can also pass them through URL parameters:
 
@@ -107,6 +126,14 @@ When the WS Lab page is served over HTTPS, browsers require secure targets:
 - `https://` for REST
 
 If Dev REST is cross-origin, the target server must allow CORS. The recommended internal deployment is a same-origin reverse proxy.
+
+When WS Lab opens a WebSocket, it automatically appends the current identity to the handshake URL:
+
+```text
+?device_id=<current device id>&user_id=<current user id>
+```
+
+If the configured WebSocket URL already has query parameters, WS Lab preserves them and only overwrites `device_id` and `user_id`. The expanded URL is not written back to the input field, so the visible address does not keep growing after repeated connections.
 
 ## Same-Origin Reverse Proxy
 

@@ -19,7 +19,8 @@ export class ScenarioRunner {
     try {
       if (!this.wsClient.isConnected) {
         steps.push({ name: "connect", status: "running" });
-        await this.wsClient.connect(wsUrl, identity.deviceId);
+        this.tools.validateConnection?.();
+        await this.wsClient.connect(wsUrl, identity);
         this.markLastStep(steps, "pass");
       }
 
@@ -87,7 +88,8 @@ export class ScenarioRunner {
       for (const step of scenario.steps || []) {
         steps.push({ name: step.action, status: "running" });
         if (step.action === "connect_ws") {
-          await this.wsClient.connect(this.getWsUrl(), this.getIdentity().deviceId);
+          this.tools.validateConnection?.();
+          await this.wsClient.connect(this.getWsUrl(), this.getIdentity());
           this.markLastStep(steps, "pass");
         } else if (step.action === "connect_hello") {
           await this.tools.connectHello?.();
