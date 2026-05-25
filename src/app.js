@@ -3741,6 +3741,16 @@ function appendConversation(event) {
 }
 
 function conversationMessage(event) {
+  if (event.direction === "system" && event.error) {
+    return {
+      kind: "system",
+      label: "系统提示",
+      text: event.error,
+      suppressDuplicate: true,
+      dedupeKey: `system-error:${event.error}`,
+      dedupeTtlMs: 4000
+    };
+  }
   if (event.direction === "client" && event.type === "audio_input") {
     const text = finalReadableText(event.payload);
     return text ? {
