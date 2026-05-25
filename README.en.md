@@ -129,6 +129,15 @@ If Dev REST is cross-origin, the target server must allow CORS. The recommended 
 
 The built-in remote Sprite environments use the HTTPS/WSS reverse proxy at `ws-lab.patch-x.cn` by default. Backend services may still expose plain `ws://` / `http://`; the proxy terminates TLS for browsers. If the proxy is unavailable, create a custom environment in Endpoint Manager as a temporary override.
 
+Recommended backend mapping for `ws-lab.patch-x.cn`: Caddy owns the public HTTPS/WSS entrypoint and TLS termination, while the upstream targets use the direct service addresses.
+
+| Environment | WS upstream | Dev REST upstream |
+|-------------|-------------|-------------------|
+| 小精灵生产环境 | `14.103.229.80:8460` | `14.103.229.80:8410` |
+| 小精灵测试环境 | `14.103.222.77:7003` | `14.103.222.77:7103` |
+| 小精灵日语环境 | `199.223.236.153:7002` | `199.223.236.153:7102` |
+| 小精灵英语环境 | `199.223.236.153:7001` | `199.223.236.153:7101` |
+
 When WS Lab opens a WebSocket, it automatically appends the current identity to the handshake URL:
 
 ```text
