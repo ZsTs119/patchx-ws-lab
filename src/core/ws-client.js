@@ -112,10 +112,11 @@ export class WsClient {
 
   async normalizeMessage(data) {
     if (data instanceof ArrayBuffer) {
-      return { direction: "server", kind: "binary", type: "audio", payload: null, bytes: data.byteLength };
+      return { direction: "server", kind: "binary", type: "audio", payload: data, bytes: data.byteLength };
     }
     if (data instanceof Blob) {
-      return { direction: "server", kind: "binary", type: "audio", payload: null, bytes: data.size };
+      const buffer = await data.arrayBuffer();
+      return { direction: "server", kind: "binary", type: "audio", payload: buffer, bytes: buffer.byteLength };
     }
     if (typeof data === "string") {
       try {

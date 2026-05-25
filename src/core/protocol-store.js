@@ -22,6 +22,9 @@ export class ProtocolStore {
     for (const listener of this.listeners) {
       listener(normalized, this.events);
     }
+    if (normalized.binaryPayload) {
+      normalized.binaryPayload = null;
+    }
     return normalized;
   }
 
@@ -64,9 +67,11 @@ export class ProtocolStore {
 
 export function normalizeEvent(event) {
   const now = new Date();
-  const payload = event.payload ?? null;
-  const kind = event.kind ?? inferKind(payload);
-  return {
+  const originalPayload = event.payload ?? null;
+  const binaryPayload = originalPayload instanceof ArrayBuffer || originalPayload instanceof Blob ? originalPayload : null;
+  const payload = binaryPayload ? null : originalPayload;
+  const kind = event.kind ?? (binaryPayload ? "binary" : inferKind(payload));
+  const normalized = {
     id: `${now.getTime()}-${Math.random().toString(16).slice(2)}`,
     at: now.toISOString(),
     direction: event.direction ?? "system",
@@ -77,6 +82,14 @@ export function normalizeEvent(event) {
     bytes: event.bytes ?? 0,
     error: event.error ?? ""
   };
+  if (binaryPayload) {
+    Object.defineProperty(normalized, "binaryPayload", {
+      value: binaryPayload,
+      enumerable: false,
+      writable: true
+    });
+  }
+  return normalized;
 }
 
 export function eventText(event) {

@@ -1,5 +1,6 @@
 import { createIdentity, createUuid, inferRoleFromDeviceId, ROLE_CODES } from "./core/identity-factory.js";
 import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-engine.js";
+import { DownlinkAudioPlayer } from "./core/downlink-audio-player.js";
 import { DevLabApi } from "./core/dev-lab-api.js";
 import { eventText, ProtocolStore } from "./core/protocol-store.js";
 import { ModuleHost } from "./core/module-host.js";
@@ -374,6 +375,7 @@ const state = {
   identity: createIdentity("01"),
   personalities: null,
   activeAudioProfile: null,
+  activePlaybackProfile: null,
   lastReport: null,
   templateDraft: null,
   customProtocolTemplates: [],
@@ -408,6 +410,7 @@ const state = {
 };
 
 let audioStreamer;
+let downlinkAudioPlayer;
 let moduleHost;
 let capabilityProbeTimer = null;
 
@@ -432,6 +435,11 @@ function init() {
       dom.audioStateLabel.textContent = displayAudioState(value);
       updateMicButtonState(value);
     }
+  });
+  downlinkAudioPlayer = new DownlinkAudioPlayer({
+    store,
+    getProfile: () => ensureActivePlaybackProfile(),
+    onState: updatePlaybackState
   });
   restoreState();
   registerCustomProtocolTemplates();
@@ -459,6 +467,7 @@ function init() {
   autoResizeComposer();
   updateQuickConnectionButton(dom.connectionPill?.dataset.state || "idle");
   updateMicButtonState();
+  updatePlaybackState();
   commitCapabilities(state.capabilities, { preserveCheckedAt: true });
   store.subscribe(handleStoreUpdate);
   wsClient.onStateChange = updateConnectionState;
@@ -468,6 +477,7 @@ function init() {
     dom.clientHandshakeLabel.textContent = "握手完成";
     state.selectedSessionId = sessionId;
     state.activeAudioProfile ||= getDraftAudioProfile();
+    state.activePlaybackProfile ||= getDraftPlaybackProfile();
     updateCustomTemplate();
     updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
     renderInspectorContext();
@@ -525,6 +535,8 @@ function bindEvents() {
   });
   dom.dismissCapabilityNoticeBtn?.addEventListener("click", hideCapabilityNotice);
   dom.quickConnectBtn?.addEventListener("click", handleQuickConnectionAction);
+  dom.playbackToggleBtn?.addEventListener("click", handlePlaybackToggleAction);
+  dom.playbackStateLabel?.addEventListener("click", handlePlaybackToggleAction);
   dom.openProtocolDrawerBtn?.addEventListener("click", openProtocolWorkspace);
   dom.openProtocolBtn?.addEventListener("click", openProtocolWorkspace);
   dom.closeProtocolWorkspaceBtn?.addEventListener("click", closeProtocolWorkspace);
@@ -1764,9 +1776,11 @@ async function openWsAndSendHello() {
   const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
   const restBase = normalizeRestInput(dom.restBaseInput.value);
   assertEndpointCompatibleWithPage(wsUrl, restBase);
+  downlinkAudioPlayer?.clear("connect", { keepUnlocked: true });
   await wsClient.connect(wsUrl, identity);
   wsClient.sendJson(buildHello());
   state.activeAudioProfile = getDraftAudioProfile();
+  state.activePlaybackProfile = getDraftPlaybackProfile();
   updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
   saveState();
 }
@@ -3479,6 +3493,7 @@ function renderScenarioSteps(steps = []) {
 }
 
 function handleStoreUpdate(event) {
+  handleDownlinkAudioEvent(event);
   renderMetrics();
   renderInspectorContext();
   renderChainTimeline();
@@ -3487,12 +3502,92 @@ function handleStoreUpdate(event) {
   }
 }
 
+function handleDownlinkAudioEvent(event) {
+  if (!event || !downlinkAudioPlayer) return;
+  if (event.direction === "server" && event.payload?.type === "hello") {
+    applyPlaybackProfileFromHello(event.payload);
+    return;
+  }
+  if (event.direction === "server" && event.payload?.type === "tts") {
+    downlinkAudioPlayer.handleTtsEvent(event.payload);
+    return;
+  }
+  if (event.direction === "server" && event.kind === "binary" && event.binaryPayload) {
+    void downlinkAudioPlayer.enqueueFrame(event.binaryPayload);
+    return;
+  }
+  if (event.direction === "client" && event.payload?.type === "interrupt") {
+    downlinkAudioPlayer.clear("client_interrupt", { keepUnlocked: true, keepStats: true });
+  }
+}
+
+async function handlePlaybackToggleAction() {
+  try {
+    const stats = downlinkAudioPlayer.stats();
+    if (!stats.unlocked) {
+      await downlinkAudioPlayer.unlock();
+      store.add({ direction: "system", type: "audio_playback", label: "声音已开启" });
+      return;
+    }
+    const muted = downlinkAudioPlayer.toggleMute();
+    store.add({ direction: "system", type: "audio_playback", label: muted ? "下行声音已静音" : "下行声音已恢复" });
+  } catch (error) {
+    store.add({ direction: "system", type: "audio_playback", error: error.message });
+  }
+}
+
+function updatePlaybackState(stats = downlinkAudioPlayer?.stats()) {
+  if (!stats) return;
+  const label = displayPlaybackState(stats);
+  const actionText = playbackButtonText(stats);
+  if (dom.playbackStateLabel) {
+    dom.playbackStateLabel.textContent = actionText;
+    dom.playbackStateLabel.dataset.state = stats.status;
+    dom.playbackStateLabel.title = `${label} · ${playbackButtonTitle(stats)}`;
+  }
+  if (dom.playbackToggleBtn) {
+    dom.playbackToggleBtn.dataset.state = stats.status;
+    dom.playbackToggleBtn.textContent = actionText;
+    dom.playbackToggleBtn.title = playbackButtonTitle(stats);
+  }
+  if (dom.metricPlayback) {
+    dom.metricPlayback.textContent = `${stats.playedFrames}/${stats.droppedFrames}`;
+    dom.metricPlayback.title = `收到 ${stats.receivedFrames} 帧/${stats.receivedBytes}B · 已播 ${stats.playedFrames} · 丢弃 ${stats.droppedFrames} · 队列 ${stats.queueDelayMs}ms`;
+  }
+}
+
+function displayPlaybackState(stats = downlinkAudioPlayer?.stats()) {
+  if (!stats) return "下行未开启";
+  const statusMap = {
+    locked: "下行未开启",
+    ready: "声音已开",
+    buffering: "下行缓冲中",
+    playing: `播放中 ${stats.queueDelayMs}ms`,
+    muted: "下行静音",
+    error: "播放失败"
+  };
+  return statusMap[stats.status] || stats.status;
+}
+
+function playbackButtonTitle(stats) {
+  if (!stats.unlocked) return "点击解锁浏览器音频播放";
+  if (stats.muted) return "点击恢复下行音频播放";
+  return "点击静音下行音频播放";
+}
+
+function playbackButtonText(stats) {
+  if (!stats.unlocked) return "开启声音";
+  if (stats.muted) return "取消静音";
+  return "静音";
+}
+
 function renderMetrics() {
   const summary = store.summary();
   dom.metricEvents.textContent = summary.total;
   dom.metricServer.textContent = summary.server;
   dom.metricBinary.textContent = `${summary.binary}`;
   dom.metricBinary.title = `in ${summary.inboundBinary}/${summary.inboundBytes}B · out ${summary.outboundBinary}/${summary.outboundBytes}B`;
+  updatePlaybackState();
   renderEvidenceCards(summary);
   renderOverview();
 }
@@ -3500,6 +3595,7 @@ function renderMetrics() {
 function renderOverview() {
   if (!dom.overviewSummary) return;
   const summary = store.summary();
+  const playback = downlinkAudioPlayer?.stats();
   const roundSummary = state.roundSummary || {};
   const current = currentRound();
   const session = state.selectedSessionId || wsClient.sessionId || "";
@@ -3517,7 +3613,7 @@ function renderOverview() {
     <strong>${escapeHtml(connection)} · ${escapeHtml(session ? shortText(session) : "未握手")}</strong>
     <span>${escapeHtml(latestRoundText)}</span>
     <span>${escapeHtml(bottlenecks.join(" · "))}</span>
-    <span>${escapeHtml(`${summary.outboundBinary} 上行音频 / ${summary.inboundBinary} 下行音频`)}</span>
+    <span>${escapeHtml(`${summary.outboundBinary} 上行音频 / ${summary.inboundBinary} 下行音频 · ${displayPlaybackState(playback)}`)}</span>
   `;
   if (dom.overviewHints) {
     const next = current
@@ -3554,11 +3650,12 @@ function renderOverviewHealth(summary = store.summary(), current = currentRound(
 function renderEvidenceCards(summary = store.summary()) {
   const identity = readIdentityFromInputs();
   const connectionState = dom.connectionPill?.dataset.state || "idle";
+  const playback = downlinkAudioPlayer?.stats();
   const cards = [
     { label: "身份", value: `角色 ${state.selectedRole} · ${shortText(identity.deviceId)} · ${shortText(identity.userId)}` },
     { label: "连接", value: `${displayConnectionState(connectionState)} · ${wsClient.sessionId ? shortText(wsClient.sessionId) : "未握手"}` },
     { label: "日志", value: `${shortText(identity.traceId)} · ${dom.logKeywordInput.value.trim() || "全量筛选"}` },
-    { label: "音频", value: `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary} / 入 ${summary.inboundBinary}` }
+    { label: "音频", value: `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary} / 入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}` }
   ];
   dom.evidenceCards.innerHTML = cards.map((card) => `
     <div class="evidence-card">
@@ -3580,7 +3677,8 @@ function renderInspectorContext() {
   dom.contextIdentity.textContent = `角色 ${state.selectedRole} · ${shortText(identity.deviceId || "device")} · ${shortText(identity.userId || "user")}`;
   dom.contextSession.textContent = wsClient.sessionId ? `${shortText(wsClient.sessionId)} · ${shortText(identity.traceId || "trace")}` : `${latest}`;
   const summary = store.summary();
-  dom.contextAudio.textContent = `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary}/入 ${summary.inboundBinary}`;
+  const playback = downlinkAudioPlayer?.stats();
+  dom.contextAudio.textContent = `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary}/入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}`;
   renderOverview();
 }
 
@@ -3692,12 +3790,28 @@ function openInspectorDetail({ eyebrow, title, meta = [], body }) {
   dom.inspectorDetailEyebrow.textContent = eyebrow || "Detail";
   dom.inspectorDetailTitle.textContent = title || "原始详情";
   dom.inspectorDetailMeta.innerHTML = meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("");
-  dom.inspectorDetailBody.textContent = typeof body === "string" ? body : JSON.stringify(body, null, 2);
+  dom.inspectorDetailBody.textContent = typeof body === "string" ? body : JSON.stringify(sanitizeDetailBody(body), null, 2);
   if (typeof dom.inspectorDetailDialog.showModal === "function") {
     dom.inspectorDetailDialog.showModal();
   } else {
     dom.inspectorDetailDialog.setAttribute("open", "");
   }
+}
+
+function sanitizeDetailBody(value) {
+  if (!value || typeof value !== "object") return value;
+  if (value instanceof ArrayBuffer || value instanceof Blob) {
+    return "[binary payload omitted]";
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDetailBody);
+  }
+  const output = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "binaryPayload") continue;
+    output[key] = item instanceof ArrayBuffer || item instanceof Blob ? "[binary payload omitted]" : sanitizeDetailBody(item);
+  }
+  return output;
 }
 
 function closeInspectorDetail() {
@@ -3818,6 +3932,8 @@ function updateConnectionState(stateName) {
     dom.sessionIdLabel.textContent = "未握手";
     dom.clientSessionLabel.textContent = "未握手";
     state.activeAudioProfile = null;
+    state.activePlaybackProfile = null;
+    downlinkAudioPlayer?.clear("disconnect", { keepUnlocked: true, keepStats: true });
   }
   updateClientPanelState({ valid: !dom.helloPreview.closest(".preview-card")?.classList.contains("invalid"), stale: false, text: dom.helloValidity.textContent });
   renderInspectorContext();
@@ -3902,6 +4018,32 @@ function ensureActiveAudioProfile() {
     throw new Error("音频配置已变更，请断开重连，让 hello 与推流配置保持一致");
   }
   return state.activeAudioProfile;
+}
+
+function getDraftPlaybackProfile() {
+  return getProfileFromInputs({
+    format: dom.playbackFormatInput.value,
+    sampleRate: dom.playbackSampleRateInput.value,
+    frameDuration: dom.playbackFrameDurationInput.value
+  });
+}
+
+function ensureActivePlaybackProfile() {
+  return state.activePlaybackProfile || getDraftPlaybackProfile();
+}
+
+function applyPlaybackProfileFromHello(payload = {}) {
+  const params = payload.audio_params || payload.playback_audio_params;
+  if (!params) return;
+  try {
+    state.activePlaybackProfile = getProfileFromInputs({
+      format: params.format || state.activePlaybackProfile?.format || dom.playbackFormatInput.value,
+      sampleRate: params.sample_rate || state.activePlaybackProfile?.sampleRate || dom.playbackSampleRateInput.value,
+      frameDuration: params.frame_duration || state.activePlaybackProfile?.frameDuration || dom.playbackFrameDurationInput.value
+    });
+  } catch {
+    // Keep the locally negotiated playback profile if the server sends a partial or legacy hello.
+  }
 }
 
 function profilesEqual(a, b) {

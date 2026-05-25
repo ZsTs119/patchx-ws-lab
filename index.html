@@ -61,6 +61,7 @@
         <div class="top-actions" aria-label="页面模式与抽屉">
           <button id="openClientDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-client-drawer-button">客户端</button>
           <button id="openInspectorDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-inspector-drawer-button">诊断</button>
+          <button id="playbackToggleBtn" class="secondary-button top-action playback-toggle-button" type="button" data-state="locked" data-testid="playback-toggle-button">开启声音</button>
           <div class="connection-pill" id="connectionPill" data-state="idle" data-testid="connection-pill">
             <span class="status-dot"></span>
             <span id="connectionLabel">未连接</span>
@@ -432,7 +433,10 @@
 
             <div class="composer-status-row">
               <span id="composerModeLabel">纯净对话</span>
-              <span id="audioStateLabel" class="soft-label" data-testid="audio-state-label">空闲</span>
+              <div class="composer-status-group">
+                <button id="playbackStateLabel" class="soft-label playback-state-label" type="button" data-state="locked" data-testid="playback-state-label">开启声音</button>
+                <span id="audioStateLabel" class="soft-label" data-testid="audio-state-label">空闲</span>
+              </div>
             </div>
 
             <div id="textDockPanel" class="dock-panel text-dock composer-panel active" role="tabpanel" aria-labelledby="textDockTab" data-tab-panel data-testid="dock-panel-text">
@@ -573,6 +577,10 @@
               <div class="metric">
                 <span>音频帧</span>
                 <strong id="metricBinary">0</strong>
+              </div>
+              <div class="metric">
+                <span>播放/丢弃</span>
+                <strong id="metricPlayback">0/0</strong>
               </div>
             </div>
             <div id="evidenceCards" class="evidence-card-grid" data-testid="evidence-cards"></div>

@@ -314,6 +314,30 @@
   opacity: 0.72;
 }
 
+.playback-toggle-button {
+  min-width: 82px;
+}
+
+.playback-toggle-button[data-state="playing"],
+.playback-toggle-button[data-state="buffering"],
+.playback-toggle-button[data-state="ready"] {
+  color: var(--ink);
+  border-color: rgba(27, 143, 85, 0.24);
+  background: rgba(236, 253, 244, 0.86);
+}
+
+.playback-toggle-button[data-state="muted"] {
+  color: var(--text-soft);
+  border-color: rgba(170, 100, 11, 0.22);
+  background: rgba(255, 248, 230, 0.9);
+}
+
+.playback-toggle-button[data-state="error"] {
+  color: #fff;
+  border-color: var(--red);
+  background: var(--red);
+}
+
 .topbar button,
 .composer-actions button,
 .audio-source-panel button,
@@ -1354,6 +1378,44 @@ textarea {
   font-weight: 700;
 }
 
+.composer-status-group {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.playback-state-label {
+  min-height: 20px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.playback-state-label:hover,
+.playback-state-label:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.playback-state-label[data-state="playing"],
+.playback-state-label[data-state="buffering"],
+.playback-state-label[data-state="ready"] {
+  color: var(--green);
+}
+
+.playback-state-label[data-state="muted"] {
+  color: var(--orange);
+}
+
+.playback-state-label[data-state="error"] {
+  color: var(--red);
+}
+
 .text-dock {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1831,6 +1893,18 @@ textarea {
   .audio-source-panel .button-row.compact > * {
     min-width: 0;
     padding-inline: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .top-actions .playback-toggle-button {
+    display: none;
+  }
+
+  .playback-state-label {
+    border: 1px solid var(--line);
+    padding-inline: 9px;
+    background: rgba(255, 255, 255, 0.72);
   }
 }
 
