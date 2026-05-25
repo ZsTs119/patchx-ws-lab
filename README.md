@@ -98,10 +98,10 @@ GitHub Pages 是 HTTPS 页面，首次打开默认选择 `小精灵生产环境`
 
 | 环境 | WebSocket | Dev REST |
 |------|-----------|----------|
-| 小精灵生产环境 | `wss://ai-chat.patch-x.cn:8460` | `https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab` |
-| 小精灵测试环境 | `wss://121.43.112.101:19988` | `https://121.43.112.101:19988/api/v1/dev/ws-lab` |
-| 小精灵日语环境 | `wss://121.43.112.101:19987` | `https://121.43.112.101:19987/api/v1/dev/ws-lab` |
-| 小精灵英语环境 | `wss://199.223.236.153:19988` | `https://199.223.236.153:19988/api/v1/dev/ws-lab` |
+| 小精灵生产环境 | `wss://ws-lab.patch-x.cn/env/prod/ws` | `https://ws-lab.patch-x.cn/env/prod/api/v1/dev/ws-lab` |
+| 小精灵测试环境 | `wss://ws-lab.patch-x.cn/env/test/ws` | `https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab` |
+| 小精灵日语环境 | `wss://ws-lab.patch-x.cn/env/ja/ws` | `https://ws-lab.patch-x.cn/env/ja/api/v1/dev/ws-lab` |
+| 小精灵英语环境 | `wss://ws-lab.patch-x.cn/env/en/ws` | `https://ws-lab.patch-x.cn/env/en/api/v1/dev/ws-lab` |
 
 也可以通过 URL 参数直接指定：
 
@@ -115,6 +115,8 @@ https://ws-lab.internal.example.com/?ws=wss%3A%2F%2Fai.example.com%2Fws&rest=htt
 - `https://` REST
 
 如果 REST 诊断接口跨域，目标服务必须允许 CORS；更推荐用同域反向代理，把静态页、WS 和 REST 放在同一个域名下。
+
+内置小精灵远端环境默认走 `ws-lab.patch-x.cn` 的 HTTPS/WSS 反向代理，后端服务仍可保持普通 `ws://` / `http://`。如果代理未部署或证书异常，可以在环境管理里新增自定义环境临时覆盖。
 
 连接 WebSocket 时，WS Lab 会自动在握手 URL 上补齐当前身份：
 

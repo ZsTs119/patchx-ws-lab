@@ -19,29 +19,29 @@ const builtInEndpointConfigs = [
   {
     id: "sprite-prod",
     label: "小精灵生产环境",
-    ws: "wss://ai-chat.patch-x.cn:8460",
-    rest: "https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab",
+    ws: "wss://ws-lab.patch-x.cn/env/prod/ws",
+    rest: "https://ws-lab.patch-x.cn/env/prod/api/v1/dev/ws-lab",
     remote: true
   },
   {
     id: "sprite-test",
     label: "小精灵测试环境",
-    ws: "wss://121.43.112.101:19988",
-    rest: "https://121.43.112.101:19988/api/v1/dev/ws-lab",
+    ws: "wss://ws-lab.patch-x.cn/env/test/ws",
+    rest: "https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab",
     remote: true
   },
   {
     id: "sprite-ja",
     label: "小精灵日语环境",
-    ws: "wss://121.43.112.101:19987",
-    rest: "https://121.43.112.101:19987/api/v1/dev/ws-lab",
+    ws: "wss://ws-lab.patch-x.cn/env/ja/ws",
+    rest: "https://ws-lab.patch-x.cn/env/ja/api/v1/dev/ws-lab",
     remote: true
   },
   {
     id: "sprite-en",
     label: "小精灵英语环境",
-    ws: "wss://199.223.236.153:19988",
-    rest: "https://199.223.236.153:19988/api/v1/dev/ws-lab",
+    ws: "wss://ws-lab.patch-x.cn/env/en/ws",
+    rest: "https://ws-lab.patch-x.cn/env/en/api/v1/dev/ws-lab",
     remote: true
   },
   {

@@ -109,10 +109,10 @@ Built-in remote environments:
 
 | Environment | WebSocket | Dev REST |
 |-------------|-----------|----------|
-| 小精灵生产环境 | `wss://ai-chat.patch-x.cn:8460` | `https://ai-chat.patch-x.cn:8460/api/v1/dev/ws-lab` |
-| 小精灵测试环境 | `wss://121.43.112.101:19988` | `https://121.43.112.101:19988/api/v1/dev/ws-lab` |
-| 小精灵日语环境 | `wss://121.43.112.101:19987` | `https://121.43.112.101:19987/api/v1/dev/ws-lab` |
-| 小精灵英语环境 | `wss://199.223.236.153:19988` | `https://199.223.236.153:19988/api/v1/dev/ws-lab` |
+| 小精灵生产环境 | `wss://ws-lab.patch-x.cn/env/prod/ws` | `https://ws-lab.patch-x.cn/env/prod/api/v1/dev/ws-lab` |
+| 小精灵测试环境 | `wss://ws-lab.patch-x.cn/env/test/ws` | `https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab` |
+| 小精灵日语环境 | `wss://ws-lab.patch-x.cn/env/ja/ws` | `https://ws-lab.patch-x.cn/env/ja/api/v1/dev/ws-lab` |
+| 小精灵英语环境 | `wss://ws-lab.patch-x.cn/env/en/ws` | `https://ws-lab.patch-x.cn/env/en/api/v1/dev/ws-lab` |
 
 You can also pass them through URL parameters:
 
@@ -126,6 +126,8 @@ When the WS Lab page is served over HTTPS, browsers require secure targets:
 - `https://` for REST
 
 If Dev REST is cross-origin, the target server must allow CORS. The recommended internal deployment is a same-origin reverse proxy.
+
+The built-in remote Sprite environments use the HTTPS/WSS reverse proxy at `ws-lab.patch-x.cn` by default. Backend services may still expose plain `ws://` / `http://`; the proxy terminates TLS for browsers. If the proxy is unavailable, create a custom environment in Endpoint Manager as a temporary override.
 
 When WS Lab opens a WebSocket, it automatically appends the current identity to the handshake URL:
 
