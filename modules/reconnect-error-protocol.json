@@ -1,0 +1,88 @@
+{
+  "id": "reconnect-error-protocol",
+  "name": "重连与异常协议",
+  "area": "异常",
+  "version": "1.0.0",
+  "description": "重连、会话接管、未知类型、缺失字段和非 JSON 输入的诊断场景。",
+  "actions": [
+    {
+      "id": "module.error.unknown_type",
+      "label": "模块 · 未知消息类型",
+      "category": "异常",
+      "requires_session": true,
+      "payload": { "type": "ws_lab_unknown_probe", "nonce": "manual" },
+      "params": [
+        { "path": "type", "label": "类型", "type": "string" },
+        { "path": "nonce", "label": "标记", "type": "string" }
+      ],
+      "expect": [{ "type": "goodbye", "timeout_ms": 1000, "optional": true }]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "module.reconnect-same-role",
+      "label": "同角色断线重连",
+      "steps": [
+        { "action": "send_text", "text": "这是重连前的测试消息。" },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 15000 },
+        { "action": "disconnect", "wait_ms": 400 },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "这是重连后的测试消息。" },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 15000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-session-takeover",
+      "label": "Hello 会话接管",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "disconnect", "wait_ms": 400 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "session_id": "{{session_id}}" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.error-unknown-type",
+      "label": "未知消息类型保护",
+      "steps": [
+        { "action": "send_json", "payload": { "type": "ws_lab_unknown_probe", "nonce": "scenario" } },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.error-malformed-json",
+      "label": "非 JSON 输入诊断",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_raw", "label": "malformed_json", "text": "{not-json" },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.error-missing-hello-fields",
+      "label": "Hello 缺失字段诊断",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_json", "payload": { "type": "hello" } },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.error-wrong-token-diagnostic",
+      "label": "错误 Token 诊断",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "token": "ws-lab-wrong-token" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

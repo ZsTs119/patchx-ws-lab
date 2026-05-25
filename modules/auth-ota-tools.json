@@ -1,0 +1,28 @@
+{
+  "id": "auth-ota-tools",
+  "name": "认证与 OTA 工具",
+  "area": "可选工具",
+  "version": "1.0.0",
+  "description": "认证和 OTA 相关探测模板。",
+  "actions": [
+    {
+      "id": "module.auth.challenge_note",
+      "label": "模块 · 认证占位",
+      "payload": {
+        "type": "auth_response",
+        "response": {
+          "device_id": "{{device_id}}",
+          "challenge_id": "replace-me",
+          "signature": "replace-me",
+          "timestamp": 0
+        }
+      }
+    },
+    {
+      "id": "module.wake_up",
+      "label": "模块 · 唤醒",
+      "payload": { "type": "wake_up" }
+    }
+  ],
+  "scenarios": []
+}

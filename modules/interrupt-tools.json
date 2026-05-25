@@ -1,0 +1,83 @@
+{
+  "id": "interrupt-tools",
+  "name": "打断测试",
+  "area": "打断",
+  "version": "1.0.0",
+  "description": "TTS 播放打断、插话与空闲打断保护。",
+  "actions": [
+    {
+      "id": "module.interrupt.basic",
+      "label": "模块 · 打断当前播放",
+      "payload": { "type": "interrupt" }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "module.interrupt-active-tts",
+      "label": "活跃 TTS 打断确认（严格）",
+      "steps": [
+        {
+          "action": "send_text",
+          "text": "请慢慢从一数到三十，方便我在播放过程中测试打断。"
+        },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 25000 },
+        { "action": "send_json", "payload": { "type": "interrupt" } },
+        { "action": "wait_ws", "type": "interrupt_complete", "timeout_ms": 8000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.interrupt-observe",
+      "label": "活跃 TTS 打断观测",
+      "steps": [
+        {
+          "action": "send_text",
+          "text": "请慢慢从一数到三十，方便我观察播放中打断。"
+        },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 25000 },
+        { "action": "send_json", "payload": { "type": "interrupt" } },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.interrupt-tts-stop",
+      "label": "TTS stop(reason=interrupt) 观测",
+      "steps": [
+        {
+          "action": "send_text",
+          "text": "请慢慢朗读一段较长的内容，方便我观察 tts stop 的 reason。"
+        },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 25000 },
+        { "action": "send_json", "payload": { "type": "interrupt" } },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 8000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.interrupt-barge-in-text",
+      "label": "文本插话打断",
+      "steps": [
+        {
+          "action": "send_text",
+          "text": "请慢慢从一数到三十，我会在中途插入新问题。"
+        },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 25000 },
+        { "action": "send_json", "payload": { "type": "interrupt" } },
+        {
+          "action": "send_text",
+          "text": "插话测试：请改为简短回答，现在是否收到新的输入？"
+        },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 25000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.interrupt-idle",
+      "label": "空闲打断保护",
+      "steps": [
+        { "action": "send_json", "payload": { "type": "interrupt" } },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

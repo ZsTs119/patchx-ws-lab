@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="zh-CN" data-boot-status="pending">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PatchX WS Lab</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23101214'/%3E%3Ctext x='32' y='39' text-anchor='middle' font-size='22' font-family='Arial' font-weight='700' fill='white'%3EPX%3C/text%3E%3C/svg%3E">
+    <link rel="stylesheet" href="./styles/base.css?v=20260525-polish3">
+    <link rel="stylesheet" href="./styles/layout.css?v=20260525-polish3">
+    <link rel="stylesheet" href="./styles/components.css?v=20260525-polish3">
+  </head>
+  <body>
+    <noscript>
+      <div class="boot-notice">
+        <strong>WS Lab 需要启用 JavaScript</strong>
+        <span>请启用脚本后，通过本地 HTTP 地址打开测试台。</span>
+      </div>
+    </noscript>
+    <div id="bootNotice" class="boot-notice" role="status" hidden>
+      <strong id="bootNoticeTitle">WS Lab 正在初始化</strong>
+      <span id="bootNoticeDetail">如果这个提示没有自动消失，请通过本地 HTTP 地址打开，而不是直接打开 HTML 文件。</span>
+      <a href="http://127.0.0.1:5177/">打开 http://127.0.0.1:5177/</a>
+    </div>
+    <div id="appShell" class="app-shell mode-pure" data-testid="ws-lab-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">PX</div>
+          <div>
+            <p class="eyebrow">WebSocket 测试仪表盘</p>
+            <h1>PatchX WS Lab</h1>
+          </div>
+        </div>
+
+        <div class="top-status-strip" aria-label="当前测试上下文">
+          <label class="compact-select environment-select">
+            <span>环境</span>
+            <select id="endpointPresetSelect" data-testid="endpoint-preset-select" aria-label="连接环境"></select>
+          </label>
+          <button id="saveEndpointBtn" class="secondary-button top-action" data-testid="save-endpoint-button" title="管理自定义连接配置">环境</button>
+          <div id="capabilityPill" class="capability-pill" data-state="checking" data-testid="capability-pill">检查中</div>
+          <div class="top-summary-card identity-summary" data-testid="top-identity-summary">
+            <span>身份</span>
+            <strong id="topIdentitySummary">角色 01 · device -</strong>
+          </div>
+          <div class="top-summary-card audio-summary" data-testid="top-audio-summary">
+            <span>音频</span>
+            <strong id="topAudioSummary">opus/24000/60ms</strong>
+          </div>
+          <div class="endpoint-hidden-fields" aria-label="当前服务端地址">
+            <label class="compact-field">
+            <span>WS</span>
+            <input id="wsUrlInput" data-testid="ws-url-input" type="url" value="ws://localhost:8460" spellcheck="false">
+            </label>
+            <label class="compact-field">
+            <span>REST</span>
+            <input id="restBaseInput" data-testid="rest-base-input" type="url" value="http://localhost:8410/api/v1/dev/ws-lab" spellcheck="false">
+            </label>
+          </div>
+        </div>
+
+        <div class="top-actions" aria-label="页面模式与抽屉">
+          <button id="openClientDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-client-drawer-button">客户端</button>
+          <button id="openInspectorDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-inspector-drawer-button">诊断</button>
+          <div class="connection-pill" id="connectionPill" data-state="idle" data-testid="connection-pill">
+            <span class="status-dot"></span>
+            <span id="connectionLabel">未连接</span>
+          </div>
+          <button id="quickConnectBtn" class="primary-button quick-connect-button" type="button" data-state="idle" data-testid="quick-connect-button">连接</button>
+        </div>
+        <div id="capabilityNotice" class="capability-notice" role="status" data-testid="capability-notice" hidden>
+          <strong id="capabilityNoticeTitle">诊断不可用</strong>
+          <span id="capabilityNoticeText">当前环境只能做 WS 协议主流程测试。</span>
+          <button id="manageCapabilityEndpointBtn" class="secondary-button mini-action" type="button" data-testid="capability-manage-endpoint-button">环境管理</button>
+          <button id="dismissCapabilityNoticeBtn" class="ghost-button mini-action" type="button" data-testid="capability-dismiss-button">继续测试</button>
+        </div>
+      </header>
+
+      <button id="drawerBackdrop" class="drawer-backdrop" type="button" aria-label="关闭抽屉" data-testid="drawer-backdrop" hidden></button>
+
+      <main class="workbench">
+        <section class="panel setup-panel drawer-panel client-drawer" aria-label="连接与身份" data-drawer="client">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">客户端</p>
+              <h2>客户端配置</h2>
+            </div>
+            <div class="panel-head-actions">
+              <div class="client-head-status" data-testid="client-head-status">
+                <span id="clientHandshakeLabel">未连接</span>
+                <strong id="clientSessionLabel">未握手</strong>
+              </div>
+              <button id="closeClientDrawerBtn" class="secondary-button drawer-close-button" type="button" data-testid="close-client-drawer-button">关闭</button>
+            </div>
+          </div>
+
+          <div class="client-summary" data-testid="client-summary">
+            <span id="clientSummaryRole">角色 01</span>
+            <span id="clientSummaryDevice">device -</span>
+            <span id="clientSummaryUser">user -</span>
+            <span id="clientSummaryAudio">opus/24000/60ms</span>
+            <span id="clientSummaryHello">Hello 合法</span>
+          </div>
+
+          <div id="clientTabs" class="client-tabs" role="tablist" aria-label="客户端配置视图" data-testid="client-tabs">
+            <button id="identityClientTab" type="button" role="tab" aria-selected="true" data-tab-target="identityClientPanel" data-testid="client-tab-identity"><span>1</span> 身份</button>
+            <button id="audioClientTab" type="button" role="tab" aria-selected="false" data-tab-target="audioClientPanel" data-testid="client-tab-audio"><span>2</span> 音频</button>
+            <button id="helloClientTab" type="button" role="tab" aria-selected="false" data-tab-target="helloClientPanel" data-testid="client-tab-hello"><span>3</span> Hello</button>
+            <button id="advancedClientTab" type="button" role="tab" aria-selected="false" data-tab-target="advancedClientPanel" data-testid="client-tab-advanced"><span>4</span> 高级</button>
+          </div>
+
+          <div class="setup-scroll" data-testid="setup-scroll">
+            <div id="identityClientPanel" class="client-tab-panel active" role="tabpanel" aria-labelledby="identityClientTab" data-tab-panel data-testid="client-panel-identity">
+              <div class="section-title">
+                <span>角色映射</span>
+                <span id="identityRoleHint" class="soft-label">Device 第 3/4 位 = 01</span>
+              </div>
+              <div class="role-grid" id="roleGrid" data-testid="role-grid" aria-label="角色映射选择">
+                <button class="role-button" type="button" disabled>01</button>
+                <button class="role-button" type="button" disabled>02</button>
+                <button class="role-button" type="button" disabled>03</button>
+                <button class="role-button" type="button" disabled>04</button>
+                <button class="role-button" type="button" disabled>05</button>
+                <button class="role-button" type="button" disabled>06</button>
+              </div>
+
+              <div id="identityStatusBanner" class="inline-status" data-tone="ok" data-testid="identity-status-banner">
+                <span id="identityStatusText">角色与设备 ID 匹配</span>
+                <button id="syncRoleFromDeviceBtn" class="mini-button" type="button" data-testid="sync-role-from-device-button" hidden>切换角色</button>
+              </div>
+
+              <div class="identity-actions" aria-label="身份快捷操作">
+                <button id="randomizeBtn" class="secondary-button" data-testid="randomize-button">随机全部</button>
+                <button id="refreshIdentityBtn" class="secondary-button" data-testid="refresh-identity-button">刷新用户/设备</button>
+                <button id="refreshTraceBtn" class="secondary-button" data-testid="refresh-trace-button">刷新 Trace</button>
+              </div>
+
+              <div class="field-grid two">
+                <label>
+                  <span>设备 ID</span>
+                  <input id="deviceIdInput" data-testid="device-id-input" placeholder="JS 初始化后生成" spellcheck="false">
+                </label>
+                <label>
+                  <span>用户 ID</span>
+                  <input id="userIdInput" data-testid="user-id-input" placeholder="JS 初始化后生成" spellcheck="false">
+                </label>
+                <label>
+                  <span>追踪 ID</span>
+                  <input id="traceIdInput" data-testid="trace-id-input" spellcheck="false">
+                </label>
+                <label>
+                  <span>客户端 ID</span>
+                  <input id="clientIdInput" data-testid="client-id-input" spellcheck="false">
+                </label>
+                <label>
+                  <span>设备 MAC</span>
+                  <input id="deviceMacInput" data-testid="device-mac-input" spellcheck="false">
+                </label>
+                <label>
+                  <span>客户端 IP</span>
+                  <input id="clientIpInput" data-testid="client-ip-input" spellcheck="false">
+                </label>
+                <label>
+                  <span>令牌 Token</span>
+                  <input id="tokenInput" data-testid="token-input" value="your-token1" spellcheck="false">
+                </label>
+                <label>
+                  <span>设备名</span>
+                  <input id="deviceNameInput" data-testid="device-name-input" value="WS Lab Device" spellcheck="false">
+                </label>
+              </div>
+            </div>
+
+            <div id="audioClientPanel" class="client-tab-panel audio-client-panel" role="tabpanel" aria-labelledby="audioClientTab" data-tab-panel data-testid="client-panel-audio" hidden>
+              <div class="section-title">
+                <span>上行音频</span>
+                <span id="audioDraftStateLabel" class="soft-label">草稿未连接</span>
+              </div>
+
+              <div class="audio-preset-grid" aria-label="音频预设">
+                <button class="preset-pill" type="button" data-audio-preset="opus:24000:60" data-testid="audio-preset-opus-24000-60">opus 24k 60ms</button>
+                <button class="preset-pill" type="button" data-audio-preset="opus:24000:40" data-testid="audio-preset-opus-24000-40">opus 24k 40ms</button>
+                <button class="preset-pill" type="button" data-audio-preset="pcm:16000:20" data-testid="audio-preset-pcm-16000-20">pcm 16k 20ms</button>
+                <button class="preset-pill" type="button" data-audio-preset="pcm:24000:20" data-testid="audio-preset-pcm-24000-20">pcm 24k 20ms</button>
+              </div>
+
+              <div class="audio-card">
+                <div class="field-grid three">
+                  <label>
+                    <span>格式</span>
+                    <select id="audioFormatInput" data-testid="audio-format-input">
+                      <option value="opus">opus</option>
+                      <option value="pcm">pcm</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>采样率</span>
+                    <select id="sampleRateInput" data-testid="sample-rate-input">
+                      <option value="16000">16000</option>
+                      <option value="24000" selected>24000</option>
+                      <option value="48000">48000</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>帧长</span>
+                    <select id="frameDurationInput" data-testid="frame-duration-input">
+                      <option value="20">20ms</option>
+                      <option value="40">40ms</option>
+                      <option value="60" selected>60ms</option>
+                    </select>
+                  </label>
+                </div>
+                <label class="switch-row">
+                  <input id="sleepModeInput" data-testid="sleep-mode-input" type="checkbox">
+                  <span>连接后进入 sleep_mode</span>
+                </label>
+              </div>
+
+              <div class="audio-card">
+                <div class="section-title">
+                  <span>下行播放参数</span>
+                  <span class="soft-label">写入 playback_audio_params</span>
+                </div>
+                <div class="field-grid three">
+                  <label>
+                    <span>格式</span>
+                    <select id="playbackFormatInput" data-testid="playback-format-input">
+                      <option value="opus">opus</option>
+                      <option value="pcm">pcm</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>采样率</span>
+                    <select id="playbackSampleRateInput" data-testid="playback-sample-rate-input">
+                      <option value="16000">16000</option>
+                      <option value="24000" selected>24000</option>
+                      <option value="48000">48000</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>帧长</span>
+                    <select id="playbackFrameDurationInput" data-testid="playback-frame-duration-input">
+                      <option value="20">20ms</option>
+                      <option value="40">40ms</option>
+                      <option value="60" selected>60ms</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="audio-profile-status" data-testid="audio-profile-status">
+                <div>
+                  <span>当前草稿</span>
+                  <strong id="draftAudioProfileLabel">opus/24000/60ms</strong>
+                </div>
+                <div>
+                  <span>握手生效</span>
+                  <strong id="activeAudioProfileLabel">未连接</strong>
+                </div>
+              </div>
+              <div id="audioReconnectNotice" class="inline-status" data-tone="ok" data-testid="audio-reconnect-notice">音频配置将在下一次 Hello 握手中生效。</div>
+            </div>
+
+            <div id="helloClientPanel" class="client-tab-panel hello-client-panel" role="tabpanel" aria-labelledby="helloClientTab" data-tab-panel data-testid="client-panel-hello" hidden>
+              <div class="hello-core-summary">
+                <span>必填核心</span>
+                <strong>type · version · transport · audio_params · device_id · user_id · trace_id · client_ip</strong>
+              </div>
+
+              <div class="capability-card">
+                <div class="section-title">
+                  <span>Hello 能力</span>
+                  <span id="helloConflictLabel" class="soft-label">无覆盖</span>
+                </div>
+                <div class="capability-grid" data-testid="hello-capability-grid">
+                  <label class="toggle-pill">
+                    <input id="helloClientIdInput" data-testid="hello-client-id-input" type="checkbox" checked>
+                    <span>客户端 ID</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloTokenToggle" data-testid="hello-token-toggle" type="checkbox" checked>
+                    <span>Token</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloDeviceNameToggle" data-testid="hello-device-name-toggle" type="checkbox" checked>
+                    <span>设备名</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloDeviceMacToggle" data-testid="hello-device-mac-toggle" type="checkbox" checked>
+                    <span>MAC</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloPlaybackToggle" data-testid="hello-playback-toggle" type="checkbox" checked>
+                    <span>下行播放</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloFeaturesToggle" data-testid="hello-features-toggle" type="checkbox" checked>
+                    <span>features</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloLocationToggle" data-testid="hello-location-toggle" type="checkbox">
+                    <span>位置</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input id="helloClientInfoToggle" data-testid="hello-client-info-toggle" type="checkbox">
+                    <span>client_info</span>
+                  </label>
+                </div>
+                <div class="session-takeover">
+                  <label class="toggle-pill">
+                    <input id="helloSessionToggle" data-testid="hello-session-toggle" type="checkbox">
+                    <span>接管会话</span>
+                  </label>
+                  <input id="helloSessionInput" data-testid="hello-session-input" placeholder="可选 session_id" spellcheck="false">
+                </div>
+              </div>
+
+              <div class="hello-structured-grid">
+                <div class="capability-card">
+                  <div class="section-title">
+                    <span>features</span>
+                    <span class="soft-label">启用后写入</span>
+                  </div>
+                  <textarea id="helloFeaturesInput" class="code-input tiny" data-testid="hello-features-input" spellcheck="false">{"mcp":true,"ws_lab":true}</textarea>
+                </div>
+
+                <div class="capability-card">
+                  <div class="section-title">
+                    <span>位置</span>
+                    <span class="soft-label">location</span>
+                  </div>
+                  <div class="field-grid two compact-fields">
+                    <label>
+                      <span>经度</span>
+                      <input id="helloLongitudeInput" data-testid="hello-longitude-input" value="120.123456" inputmode="decimal" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>纬度</span>
+                      <input id="helloLatitudeInput" data-testid="hello-latitude-input" value="30.123456" inputmode="decimal" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>地址</span>
+                      <input id="helloAddressInput" data-testid="hello-address-input" value="杭州市西湖区" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>行政区</span>
+                      <input id="helloAdCodeInput" data-testid="hello-ad-code-input" value="330106" spellcheck="false">
+                    </label>
+                  </div>
+                </div>
+
+                <div class="capability-card">
+                  <div class="section-title">
+                    <span>client_info</span>
+                    <span class="soft-label">客户端画像</span>
+                  </div>
+                  <div class="field-grid two compact-fields">
+                    <label>
+                      <span>平台</span>
+                      <input id="helloOsTypeInput" data-testid="hello-os-type-input" value="Web" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>应用版本</span>
+                      <input id="helloAppVersionInput" data-testid="hello-app-version-input" value="ws-lab" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>网络类型</span>
+                      <input id="helloNetworkTypeInput" data-testid="hello-network-type-input" value="wifi" spellcheck="false">
+                    </label>
+                    <label>
+                      <span>电量</span>
+                      <input id="helloBatteryInput" data-testid="hello-battery-input" value="76" inputmode="numeric" spellcheck="false">
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="advancedClientPanel" class="client-tab-panel advanced-client-panel" role="tabpanel" aria-labelledby="advancedClientTab" data-tab-panel data-testid="client-panel-advanced" hidden>
+              <div class="identity-json-tools">
+                <div class="section-title">
+                  <span>身份 JSON</span>
+                  <div class="section-actions">
+                    <button id="copyIdentityBtn" class="secondary-button" type="button" data-testid="copy-identity-button">复制身份 JSON</button>
+                    <button id="applyIdentityJsonBtn" class="secondary-button" type="button" data-testid="apply-identity-json-button">应用身份 JSON</button>
+                  </div>
+                </div>
+                <textarea id="identityJsonInput" class="code-input tiny" data-testid="identity-json-input" spellcheck="false" placeholder='粘贴身份 JSON，例如 {"device_id":"PX01...","user_id":"ws-lab-user-01"}'></textarea>
+              </div>
+
+              <div class="preview-card">
+                <div class="section-title">
+                  <span>Hello 预览</span>
+                  <div class="section-actions">
+                    <span id="helloValidity" class="soft-label">合法</span>
+                    <button id="resetHelloBtn" class="mini-button" type="button" data-testid="reset-hello-button">重置</button>
+                    <button id="copyHelloBtn" class="mini-button" type="button" data-testid="copy-hello-button">复制</button>
+                    <button id="expandHelloBtn" class="mini-button" type="button" data-testid="expand-hello-button">完整</button>
+                  </div>
+                </div>
+                <textarea id="helloExtraInput" class="code-input small" data-testid="hello-extra-input" spellcheck="false" placeholder='Hello 扩展 JSON，例如 {"features":{"mcp":true,"debug":true}}'></textarea>
+                <pre id="helloPreview" class="json-preview" data-testid="hello-preview"></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="button-row setup-actions">
+            <button id="connectBtn" class="primary-button" data-testid="connect-button">连接并发送 Hello</button>
+            <button id="disconnectBtn" class="secondary-button" data-testid="disconnect-button">断开</button>
+          </div>
+        </section>
+
+        <section class="panel chat-panel" aria-label="消息工作台">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">会话</p>
+              <h2>输入与回复</h2>
+            </div>
+            <div class="session-chip" data-testid="session-chip">
+              <span>会话</span>
+              <strong id="sessionIdLabel">未握手</strong>
+            </div>
+          </div>
+
+          <div id="conversationList" class="conversation-list" data-testid="conversation-list"></div>
+
+          <div class="input-dock" data-testid="input-dock">
+            <div id="inputDockTabs" class="dock-tabs composer-tabs-hidden" role="tablist" aria-label="输入模式" data-testid="input-dock-tabs">
+              <button id="textDockTab" type="button" role="tab" aria-selected="true" data-tab-target="textDockPanel" data-testid="dock-tab-text">文本</button>
+              <button id="audioDockTab" type="button" role="tab" aria-selected="false" data-tab-target="audioDockPanel" data-testid="dock-tab-audio">音频</button>
+              <button id="protocolDockTab" type="button" role="tab" aria-selected="false" data-tab-target="protocolDockPanel" data-testid="dock-tab-protocol">协议</button>
+            </div>
+
+            <div class="composer-status-row">
+              <span id="composerModeLabel">纯净对话</span>
+              <span id="audioStateLabel" class="soft-label" data-testid="audio-state-label">空闲</span>
+            </div>
+
+            <div id="textDockPanel" class="dock-panel text-dock composer-panel active" role="tabpanel" aria-labelledby="textDockTab" data-tab-panel data-testid="dock-panel-text">
+              <textarea id="textMessageInput" data-testid="text-message-input" placeholder="输入文本，Enter 发送，Shift+Enter 换行" spellcheck="false"></textarea>
+              <div class="composer-actions">
+                <button id="toggleAudioPanelBtn" class="secondary-button composer-icon-button" type="button" aria-expanded="false" data-testid="toggle-audio-panel-button">音频源</button>
+                <button id="openProtocolBtn" class="secondary-button composer-icon-button" type="button" data-testid="composer-protocol-button">协议</button>
+                <button id="startMicBtn" class="secondary-button mic-button" data-testid="start-mic-button">全双工</button>
+                <button id="sendTextBtn" class="primary-button send-button" data-testid="send-text-button">发送</button>
+              </div>
+            </div>
+
+            <div id="audioDockPanel" class="dock-panel audio-dock audio-source-panel" role="tabpanel" aria-labelledby="audioDockTab" data-tab-panel data-testid="dock-panel-audio" hidden>
+              <div class="dock-section-title">
+                <span>音频源</span>
+                <button id="closeAudioPanelBtn" class="mini-button" type="button" data-testid="close-audio-panel-button">收起</button>
+              </div>
+              <div class="audio-source-grid">
+                <section class="audio-source-card primary-source">
+                  <span>全双工麦克风</span>
+                  <strong>实时采集本机麦克风并推流到 ASR。</strong>
+                  <em>与底部快捷键共享同一状态，收到 ASR 后会补充到会话。</em>
+                  <div class="button-row compact">
+                    <button id="audioMicBtn" class="primary-button audio-mic-button" type="button" data-idle-label="开始全双工" data-active-label="停止全双工" data-testid="audio-mic-button">开始全双工</button>
+                    <button id="stopAudioBtn" class="ghost-button subtle-stop-button" data-testid="stop-audio-button">停止音频流</button>
+                  </div>
+                </section>
+                <section class="audio-source-card">
+                  <span>生成语音推流</span>
+                  <input id="ttsTextInput" data-testid="tts-text-input" value="这是一段本地生成的测试音频。" spellcheck="false">
+                  <button id="generateTtsBtn" class="secondary-button" data-testid="generate-tts-button">生成并推流</button>
+                </section>
+                <section class="audio-source-card">
+                  <span>WAV 文件推流</span>
+                  <label class="file-field">
+                    <span>WAV 文件</span>
+                    <input id="wavFileInput" data-testid="wav-file-input" type="file" accept=".wav,audio/wav,audio/x-wav">
+                  </label>
+                  <button id="streamWavBtn" class="secondary-button" data-testid="stream-wav-button">推流 WAV</button>
+                </section>
+                <section class="audio-source-card advanced-source">
+                  <span>静音诊断流</span>
+                  <div class="button-row compact">
+                    <button id="startSilenceBtn" class="secondary-button" data-testid="start-silence-button">静音开始</button>
+                    <button id="pauseSilenceBtn" class="ghost-button" data-testid="pause-silence-button">暂停</button>
+                    <button id="resumeSilenceBtn" class="ghost-button" data-testid="resume-silence-button">继续</button>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <div id="protocolDockPanel" class="dock-panel protocol-dock protocol-workspace" role="tabpanel" aria-labelledby="protocolDockTab" data-tab-panel data-testid="dock-panel-protocol" hidden>
+              <div class="protocol-workspace-head">
+                <div>
+                  <p class="eyebrow">Protocol</p>
+                  <h2>协议工作台</h2>
+                </div>
+                <button id="closeProtocolWorkspaceBtn" class="secondary-button" type="button" data-testid="close-protocol-workspace-button">关闭</button>
+              </div>
+              <div class="protocol-top-row">
+                <label>
+                  <span>协议模板</span>
+                  <select id="templateSelect" data-testid="template-select" aria-label="协议模板" data-popover-placement="bottom">
+                    <option value="">初始化协议模板...</option>
+                  </select>
+                </label>
+                <div id="templateMeta" class="template-meta" data-testid="template-meta"></div>
+              </div>
+              <div class="protocol-custom-tools">
+                <input id="protocolTemplateNameInput" data-testid="protocol-template-name-input" placeholder="自定义模板名称" spellcheck="false">
+                <button id="saveProtocolTemplateBtn" class="secondary-button" type="button" data-testid="save-protocol-template-button">保存模板</button>
+                <button id="deleteProtocolTemplateBtn" class="ghost-button" type="button" data-testid="delete-protocol-template-button">删除</button>
+                <button id="exportProtocolTemplateBtn" class="ghost-button" type="button" data-testid="export-protocol-template-button">导出</button>
+              </div>
+              <div id="templateParamForm" class="template-param-form" data-testid="template-param-form"></div>
+              <textarea id="customJsonInput" class="code-input" data-testid="custom-json-input" spellcheck="false"></textarea>
+              <div class="button-row">
+                <button id="sendCustomBtn" class="secondary-button" data-testid="send-custom-button">发送 JSON</button>
+                <button id="formatCustomBtn" class="ghost-button" data-testid="format-custom-button">格式化</button>
+                <button id="importProtocolTemplateBtn" class="ghost-button" type="button" data-testid="import-protocol-template-button">导入模板</button>
+              </div>
+              <textarea id="protocolImportInput" class="code-input tiny protocol-import-input" data-testid="protocol-import-input" spellcheck="false" placeholder="粘贴协议模板 JSON 后点击导入"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel evidence-panel drawer-panel inspector-drawer" aria-label="诊断与验收" data-drawer="inspector">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">诊断</p>
+              <h2>诊断控制台</h2>
+            </div>
+            <div class="panel-head-actions">
+              <button id="focusInspectorBtn" class="secondary-button" type="button" aria-pressed="false" data-testid="focus-inspector-button">聚焦诊断</button>
+              <button id="refreshInspectorBtn" class="primary-button" type="button" data-testid="refresh-inspector-button">刷新</button>
+              <button id="closeInspectorDrawerBtn" class="secondary-button drawer-close-button" type="button" data-testid="close-inspector-drawer-button">关闭</button>
+            </div>
+          </div>
+
+          <div id="inspectorContext" class="inspector-context" data-testid="inspector-context">
+            <div>
+              <span>环境</span>
+              <strong id="contextEnvironment">本机默认</strong>
+            </div>
+            <div>
+              <span>身份</span>
+              <strong id="contextIdentity">角色 01 · 未连接</strong>
+            </div>
+            <div>
+              <span>会话</span>
+              <strong id="contextSession">未握手</strong>
+            </div>
+            <div>
+              <span>音频</span>
+              <strong id="contextAudio">opus/24000/60ms</strong>
+            </div>
+          </div>
+
+          <div id="inspectorTabs" class="inspector-tabs" role="tablist" aria-label="诊断控制台视图" data-testid="inspector-tabs">
+            <button id="overviewTab" type="button" role="tab" aria-selected="true" data-tab-target="overviewView" data-testid="overview-tab">总览</button>
+            <button id="roundTab" type="button" role="tab" aria-selected="false" data-tab-target="roundView" data-testid="round-tab">轮次</button>
+            <button id="logsTab" type="button" role="tab" aria-selected="false" data-tab-target="logsView" data-testid="logs-tab">日志</button>
+            <button id="scenarioTab" type="button" role="tab" aria-selected="false" data-tab-target="scenarioView" data-testid="scenario-tab">场景</button>
+          </div>
+
+          <div id="overviewView" class="inspector-view active overview-view" role="tabpanel" aria-labelledby="overviewTab" data-tab-panel data-testid="overview-view">
+            <div id="overviewHealth" class="overview-health" data-testid="overview-health"></div>
+            <div id="overviewSummary" class="overview-summary" data-testid="overview-summary"></div>
+            <div class="metrics-grid" data-testid="metrics-grid">
+              <div class="metric">
+                <span>事件总量</span>
+                <strong id="metricEvents">0</strong>
+              </div>
+              <div class="metric">
+                <span>服务端消息</span>
+                <strong id="metricServer">0</strong>
+              </div>
+              <div class="metric">
+                <span>音频帧</span>
+                <strong id="metricBinary">0</strong>
+              </div>
+            </div>
+            <div id="evidenceCards" class="evidence-card-grid" data-testid="evidence-cards"></div>
+            <div id="overviewHints" class="overview-hints" data-testid="overview-hints"></div>
+          </div>
+
+          <div id="roundView" class="inspector-view round-view" role="tabpanel" aria-labelledby="roundTab" data-tab-panel data-testid="round-view" hidden>
+            <div class="round-toolbar session-toolbar">
+              <label>
+                <span>会话</span>
+                <select id="roundSessionSelect" data-testid="round-session-select" aria-label="日志会话">
+                  <option value="">扫描会话中...</option>
+                </select>
+              </label>
+              <button id="refreshRoundsBtn" class="secondary-button" data-testid="refresh-rounds-button">刷新轮次</button>
+            </div>
+            <div class="round-switches">
+              <label class="switch-row compact-switch">
+                <input id="roundFollowLatestInput" data-testid="round-follow-latest-input" type="checkbox" checked>
+                <span>自动跟随最新</span>
+              </label>
+              <label class="switch-row compact-switch">
+                <input id="roundErrorOnlyInput" data-testid="round-error-only-input" type="checkbox">
+                <span>只看异常</span>
+              </label>
+              <label class="switch-row compact-switch">
+                <input id="roundMissingInput" data-testid="round-missing-input" type="checkbox" checked>
+                <span>显示缺失证据</span>
+              </label>
+              <label class="switch-row compact-switch">
+                <input id="roundUnknownInput" data-testid="round-unknown-input" type="checkbox" checked>
+                <span>收纳其他模块</span>
+              </label>
+            </div>
+            <div id="roundSummary" class="round-summary" data-testid="round-summary"></div>
+            <div class="round-workbench">
+              <div>
+                <div class="timeline-title">
+                  <strong>轮次列表</strong>
+                  <span class="soft-label">按最新结果排序</span>
+                </div>
+                <div id="roundList" class="round-list" data-testid="round-list"></div>
+              </div>
+              <div>
+                <div class="timeline-title">
+                  <strong>轮次叙事</strong>
+                  <span class="soft-label">点击卡片查看原始证据</span>
+                </div>
+                <div id="roundDetail" class="round-detail" data-testid="round-detail"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="logsView" class="inspector-view" role="tabpanel" aria-labelledby="logsTab" data-tab-panel data-testid="logs-view" hidden>
+            <div class="log-filter-grid">
+              <label>
+                <span>范围</span>
+                <select id="logScopeSelect" data-testid="log-scope-select" aria-label="日志范围">
+                  <option value="session">当前会话</option>
+                  <option value="user">当前用户</option>
+                  <option value="device">当前设备</option>
+                  <option value="trace">当前 Trace</option>
+                  <option value="global">全局</option>
+                </select>
+              </label>
+              <label>
+                <span>阶段</span>
+                <select id="logPhaseSelect" data-testid="log-phase-select" aria-label="日志阶段">
+                  <option value="">全部阶段</option>
+                  <option value="连接">连接</option>
+                  <option value="Hello">Hello</option>
+                  <option value="认证">认证</option>
+                  <option value="监听">监听</option>
+                  <option value="输入">输入</option>
+                  <option value="ASR">ASR</option>
+                  <option value="意图">意图</option>
+                  <option value="工具">工具/MCP</option>
+                  <option value="LLM">LLM</option>
+                  <option value="TTS">TTS</option>
+                  <option value="延迟">延迟</option>
+                  <option value="错误">错误</option>
+                </select>
+              </label>
+              <label>
+                <span>级别</span>
+                <select id="logLevelSelect" data-testid="log-level-select" aria-label="日志级别">
+                  <option value="">全部级别</option>
+                  <option value="debug">debug</option>
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="warning">warning</option>
+                  <option value="error">error</option>
+                </select>
+              </label>
+              <label>
+                <span>时间</span>
+                <select id="logSinceSelect" data-testid="log-since-select" aria-label="日志时间范围">
+                  <option value="">全部时间</option>
+                  <option value="5m">近 5 分钟</option>
+                  <option value="15m">近 15 分钟</option>
+                  <option value="1h">近 1 小时</option>
+                </select>
+              </label>
+            </div>
+            <div class="log-toolbar">
+              <input id="logKeywordInput" data-testid="log-keyword-input" placeholder="日志关键词" spellcheck="false">
+              <input id="logTurnInput" data-testid="log-turn-input" placeholder="轮次/Listen ID" spellcheck="false">
+              <button id="refreshLogsBtn" class="secondary-button" data-testid="refresh-logs-button">筛选日志</button>
+              <button id="pauseLogsBtn" class="ghost-button" data-testid="pause-logs-button" aria-pressed="false">暂停</button>
+            </div>
+            <label class="switch-row compact-switch">
+              <input id="logErrorOnlyInput" data-testid="log-error-only-input" type="checkbox">
+              <span>只看错误与异常</span>
+            </label>
+            <div id="logSummary" class="log-summary" data-testid="log-summary"></div>
+            <div class="timeline-title">
+              <strong>日志洞察</strong>
+              <span class="soft-label">点击查看原始 JSON</span>
+            </div>
+            <div id="logInsightList" class="log-insight-list" data-testid="log-insight-list"></div>
+          </div>
+
+          <div id="scenarioView" class="inspector-view scenario-view modules-view" role="tabpanel" aria-labelledby="scenarioTab" data-tab-panel data-testid="scenario-view" hidden>
+            <div class="scenario-toolbar">
+              <select id="scenarioSelect" data-testid="scenario-select" aria-label="验收场景">
+                <option value="">初始化验收场景...</option>
+              </select>
+              <button id="runScenarioBtn" class="primary-button" data-testid="run-scenario-button">运行场景</button>
+            </div>
+
+            <div id="scenarioMeta" class="scenario-meta" data-testid="scenario-meta"></div>
+
+            <div id="scenarioReport" class="scenario-report" data-testid="scenario-report">
+              <span class="soft-label">等待执行 role-text-smoke</span>
+            </div>
+            <div id="scenarioSteps" class="scenario-steps" data-testid="scenario-steps"></div>
+
+            <div id="moduleList" class="module-list" data-testid="module-list"></div>
+            <div id="moduleDiagnostics" class="module-diagnostics" data-testid="module-diagnostics"></div>
+            <div class="module-tools">
+              <button id="copyScenarioBtn" class="secondary-button" data-testid="copy-scenario-button">复制当前场景</button>
+              <button id="copyJsonReportBtn" class="secondary-button" data-testid="copy-json-report-button">复制报告 JSON</button>
+              <button id="copyMarkdownReportBtn" class="secondary-button" data-testid="copy-markdown-report-button">复制报告 Markdown</button>
+              <textarea id="scenarioImportInput" class="code-input tiny" data-testid="scenario-import-input" spellcheck="false" placeholder='粘贴场景 JSON'></textarea>
+              <button id="importScenarioBtn" class="secondary-button" data-testid="import-scenario-button">导入场景</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="inspectorDetailDialog" class="payload-dialog inspector-detail-dialog" data-testid="raw-detail-drawer">
+      <div class="payload-dialog-head">
+        <div>
+          <p class="eyebrow" id="inspectorDetailEyebrow">Detail</p>
+          <h2 id="inspectorDetailTitle">原始详情</h2>
+        </div>
+        <button id="closeInspectorDetailBtn" class="secondary-button" type="button" data-testid="close-raw-detail-button">关闭</button>
+      </div>
+      <div id="inspectorDetailMeta" class="inspector-detail-meta" data-testid="raw-detail-meta"></div>
+      <pre id="inspectorDetailBody" class="json-preview large" data-testid="raw-detail-body"></pre>
+    </dialog>
+
+    <dialog id="helloDialog" class="payload-dialog" data-testid="hello-dialog">
+      <div class="payload-dialog-head">
+        <div>
+          <p class="eyebrow">Outgoing Hello</p>
+          <h2>完整 Hello JSON</h2>
+        </div>
+        <button id="closeHelloDialogBtn" class="secondary-button" type="button" data-testid="close-hello-dialog-button">关闭</button>
+      </div>
+      <pre id="helloDialogPreview" class="json-preview large" data-testid="hello-dialog-preview"></pre>
+    </dialog>
+
+    <dialog id="endpointDialog" class="payload-dialog endpoint-dialog" data-testid="endpoint-dialog">
+      <div class="payload-dialog-head">
+        <div>
+          <p class="eyebrow">Endpoint Manager</p>
+          <h2 id="endpointDialogTitle">环境配置中心</h2>
+        </div>
+        <button id="closeEndpointDialogBtn" class="secondary-button" type="button" data-testid="close-endpoint-dialog-button">关闭</button>
+      </div>
+      <div class="endpoint-manager-body">
+        <aside class="endpoint-manager-list" aria-label="环境列表">
+          <div class="endpoint-manager-tools">
+            <span>环境</span>
+            <button id="newEndpointBtn" class="secondary-button" type="button" data-testid="new-endpoint-button">新建</button>
+          </div>
+          <div id="endpointConfigList" class="endpoint-config-list" data-testid="endpoint-config-list"></div>
+        </aside>
+        <section class="endpoint-dialog-body" aria-label="环境编辑">
+          <label>
+            <span>配置名称</span>
+            <input id="endpointNameInput" data-testid="endpoint-name-input" type="text" maxlength="60" placeholder="例如：海外 7001 验收">
+          </label>
+          <label>
+            <span>WS 地址</span>
+            <input id="endpointWsInput" data-testid="endpoint-ws-input" type="url" spellcheck="false">
+          </label>
+          <label>
+            <span>REST 地址</span>
+            <input id="endpointRestInput" data-testid="endpoint-rest-input" type="url" spellcheck="false">
+          </label>
+          <div class="endpoint-health-panel">
+            <button id="endpointHealthBtn" class="secondary-button" type="button" data-testid="endpoint-health-button">检查 REST</button>
+            <span id="endpointHealthStatus" data-testid="endpoint-health-status">REST 未检查</span>
+          </div>
+          <p id="endpointDialogStatus" class="dialog-status" data-testid="endpoint-dialog-status"></p>
+        </section>
+      </div>
+      <div class="endpoint-dialog-actions">
+        <button id="deleteEndpointBtn" class="ghost-button danger-button" type="button" data-testid="delete-endpoint-button">删除</button>
+        <div>
+          <button id="cancelEndpointDialogBtn" class="secondary-button" type="button" data-testid="cancel-endpoint-dialog-button">取消</button>
+          <button id="applyEndpointDialogBtn" class="secondary-button" type="button" data-testid="apply-endpoint-dialog-button">应用</button>
+          <button id="saveEndpointDialogBtn" class="primary-button" type="button" data-testid="save-endpoint-dialog-button">保存为自定义</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script>
+      (function () {
+        function setNotice(title, detail) {
+          var notice = document.getElementById("bootNotice");
+          if (!notice) return;
+          document.getElementById("bootNoticeTitle").textContent = title;
+          document.getElementById("bootNoticeDetail").textContent = detail;
+          notice.hidden = false;
+        }
+
+        window.__WS_LAB_BOOTSTRAP__ = {
+          markReady: function () {
+            document.documentElement.dataset.bootStatus = "ready";
+            var notice = document.getElementById("bootNotice");
+            if (notice) notice.hidden = true;
+          },
+          markError: function (message) {
+            document.documentElement.dataset.bootStatus = "error";
+            setNotice("WS Lab 初始化失败", message || "脚本没有完成初始化，请查看浏览器控制台。");
+          }
+        };
+
+        window.addEventListener("error", function (event) {
+          if (document.documentElement.dataset.bootStatus !== "ready") {
+            window.__WS_LAB_BOOTSTRAP__.markError(event.message);
+          }
+        });
+
+        window.setTimeout(function () {
+          if (document.documentElement.dataset.bootStatus === "ready") return;
+          if (window.location.protocol === "file:") {
+            window.__WS_LAB_BOOTSTRAP__.markError("当前是 file:// 打开方式，Chrome 会拦截 ES Module。请用 http://127.0.0.1:5177/ 打开。");
+            return;
+          }
+          setNotice("WS Lab 初始化较慢", "角色、模板和场景还没有完成加载；如果持续不变，请刷新页面并查看控制台错误。");
+        }, 1200);
+      })();
+    </script>
+    <script src="./vendor/libopus.js?v=20260524-layered"></script>
+    <script type="module" src="./src/app.js?v=20260525-polish3"></script>
+  </body>
+</html>

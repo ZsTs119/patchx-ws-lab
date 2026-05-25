@@ -1,0 +1,39 @@
+{
+  "id": "environment-vision",
+  "name": "环境与视觉",
+  "area": "可选工具",
+  "version": "1.0.0",
+  "description": "环境感知和图片视觉协议模板。",
+  "actions": [
+    {
+      "id": "module.environment.text",
+      "label": "模块 · 环境文本",
+      "payload": {
+        "type": "listen",
+        "mode": "manual",
+        "state": "detect",
+        "text": "请结合当前环境信息做一次感知测试。"
+      }
+    },
+    {
+      "id": "module.vision.url",
+      "label": "模块 · 视觉 URL",
+      "payload": {
+        "type": "image",
+        "text": "描述这张图片",
+        "image_data": { "url": "https://example.com/test.jpg" }
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "module.environment-text-smoke",
+      "label": "环境文本冒烟",
+      "steps": [
+        { "action": "send_text", "text": "请做一次环境感知冒烟测试。" },
+        { "action": "wait_ws", "type": "tts", "timeout_ms": 12000 },
+        { "action": "log_summary", "min_milestone": "tts" }
+      ]
+    }
+  ]
+}

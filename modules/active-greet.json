@@ -1,0 +1,26 @@
+{
+  "id": "active-greet",
+  "name": "主动问候与触摸",
+  "area": "交互",
+  "version": "1.0.0",
+  "description": "主动问候、唤醒、情绪和塔罗协议动作。",
+  "actions": [
+    { "id": "module.active_greet", "label": "模块 · 主动问候", "payload": { "type": "active_greet" } },
+    { "id": "module.boot_greeting", "label": "模块 · 开机问候", "payload": { "type": "boot_greeting" } },
+    { "id": "module.touch_mood", "label": "模块 · 触摸情绪", "payload": { "type": "touch_mood" } },
+    { "id": "module.touch_tarot", "label": "模块 · 触摸塔罗", "payload": { "type": "touch_tarot" } },
+    { "id": "module.sleep_on", "label": "模块 · 睡眠开启", "payload": { "type": "sleep_mode_switch", "switch": "on" } },
+    { "id": "module.sleep_off", "label": "模块 · 睡眠关闭", "payload": { "type": "sleep_mode_switch", "switch": "off" } }
+  ],
+  "scenarios": [
+    {
+      "id": "module.active-greet-smoke",
+      "label": "主动问候冒烟",
+      "steps": [
+        { "action": "send_json", "payload": { "type": "active_greet" } },
+        { "action": "expect_no_ws", "type": "service_status", "state": "failed", "timeout_ms": 1200 },
+        { "action": "expect_binary", "timeout_ms": 12000 }
+      ]
+    }
+  ]
+}

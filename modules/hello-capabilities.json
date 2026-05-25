@@ -1,0 +1,82 @@
+{
+  "id": "hello-capabilities",
+  "name": "Hello 能力验收",
+  "area": "核心 WS",
+  "version": "1.0.0",
+  "description": "验证必填 Hello、默认可选能力、位置能力和会话接管字段。",
+  "actions": [
+    {
+      "id": "module.hello.required_only",
+      "label": "模块 · Hello 必填字段",
+      "category": "Hello",
+      "requires_session": false,
+      "payload": {
+        "type": "hello",
+        "version": 1,
+        "transport": "websocket"
+      },
+      "params": [
+        { "path": "version", "label": "协议版本", "type": "number" },
+        { "path": "transport", "label": "传输", "type": "string" }
+      ],
+      "expect": [{ "type": "hello", "timeout_ms": 12000 }]
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "module.hello-required-only",
+      "label": "Hello 必填字段",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "omit": [
+            "client_id",
+            "token",
+            "device_name",
+            "device_mac",
+            "playback_audio_params",
+            "features",
+            "location",
+            "client_info",
+            "sleep_mode",
+            "session_id"
+          ]
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-default-options",
+      "label": "Hello 默认可选字段",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello" },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-location",
+      "label": "Hello 位置能力",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "location.latitude": 30.123456,
+            "location.longitude": 120.123456,
+            "location.address": "杭州市西湖区",
+            "location.ad_code": "330106"
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

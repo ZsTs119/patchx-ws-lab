@@ -1,0 +1,34 @@
+{
+  "id": "listen-mode",
+  "name": "监听模式",
+  "area": "核心 WS",
+  "version": "1.0.0",
+  "description": "监听模式控制动作和冒烟场景。",
+  "actions": [
+    {
+      "id": "module.listen_mode.start",
+      "label": "模块 · 监听开始",
+      "payload": { "type": "listen_mode", "action": "start", "session_type": "transcription" }
+    },
+    {
+      "id": "module.listen_mode.status",
+      "label": "模块 · 监听状态",
+      "payload": { "type": "listen_mode", "action": "status" }
+    },
+    {
+      "id": "module.listen_mode.end",
+      "label": "模块 · 监听结束",
+      "payload": { "type": "listen_mode", "action": "end" }
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "module.listen-mode-status",
+      "label": "监听模式状态",
+      "steps": [
+        { "action": "send_json", "payload": { "type": "listen_mode", "action": "status" } },
+        { "action": "wait_ws", "type": "listen_mode_status", "timeout_ms": 5000 }
+      ]
+    }
+  ]
+}

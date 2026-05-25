@@ -1,0 +1,76 @@
+{
+  "id": "audio-matrix",
+  "name": "音频矩阵",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "覆盖 opus/pcm、采样率和 20/40/60ms 帧长的基础传输矩阵。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.audio-opus-16000-20ms",
+      "label": "Opus 16000Hz 20ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 20 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 260, "min_outbound_binary": 4 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.audio-opus-24000-40ms",
+      "label": "Opus 24000Hz 40ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 360, "min_outbound_binary": 3 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.audio-pcm-16000-20ms",
+      "label": "PCM 16000Hz 20ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 16000, "frame_duration": 20 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 260, "min_outbound_binary": 4, "min_outbound_bytes": 2560 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.audio-pcm-24000-40ms",
+      "label": "PCM 24000Hz 40ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 360, "min_outbound_binary": 3, "min_outbound_bytes": 5760 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.audio-opus-48000-60ms",
+      "label": "Opus 48000Hz 60ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 48000, "frame_duration": 60 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 420, "min_outbound_binary": 3 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.audio-pcm-48000-60ms",
+      "label": "PCM 48000Hz 60ms",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 48000, "frame_duration": 60 } },
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        { "action": "stream_silence", "duration_ms": 420, "min_outbound_binary": 3, "min_outbound_bytes": 17280 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}
