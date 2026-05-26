@@ -1,3 +1,5 @@
+const WS_LAB_ASSET_VERSION = "20260526-asr-scenes1";
+
 export class ModuleHost {
   constructor({ store }) {
     this.store = store;
@@ -8,7 +10,7 @@ export class ModuleHost {
   }
 
   async load(registryUrl = "./modules/registry.json") {
-    const response = await fetch(registryUrl);
+    const response = await fetch(versionedAssetUrl(registryUrl), { cache: "no-cache" });
     if (!response.ok) {
       throw new Error(`模块注册表加载失败：HTTP ${response.status}`);
     }
@@ -35,7 +37,7 @@ export class ModuleHost {
       throw new Error("模块注册项无效");
     }
     if (entry.type === "js") {
-      const imported = await import(new URL(entry.path, window.location.href).href);
+      const imported = await import(versionedAssetUrl(entry.path));
       const value = typeof imported.default === "function"
         ? await imported.default(this.createHostApi(entry.id))
         : imported.default;
@@ -43,7 +45,7 @@ export class ModuleHost {
       return;
     }
 
-    const response = await fetch(entry.path);
+    const response = await fetch(versionedAssetUrl(entry.path), { cache: "no-cache" });
     if (!response.ok) {
       throw new Error(`模块 ${entry.path} 加载失败：HTTP ${response.status}`);
     }
@@ -98,6 +100,12 @@ export class ModuleHost {
       errors: [...this.errors]
     };
   }
+}
+
+function versionedAssetUrl(path) {
+  const url = new URL(path, window.location.href);
+  url.searchParams.set("v", WS_LAB_ASSET_VERSION);
+  return url.href;
 }
 
 function validateManifest(manifest) {
