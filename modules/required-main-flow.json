@@ -1,0 +1,32 @@
+{
+  "id": "required-main-flow",
+  "name": "必跑主流程",
+  "area": "Core",
+  "version": "1.0.0",
+  "description": "每次主流程、协议、音频、诊断或场景能力改动后优先运行的基础回归场景。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.required-main-flow",
+      "label": "必跑 · 连接文本语音主流程",
+      "description": "验证 WS 连接、Hello、文本输入、服务端 TTS、下行二进制音频、日志里程碑和会话未异常关闭。",
+      "stability": "strict",
+      "suite": "required",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "你好，做一次基础主流程回归，请用一句话回复。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 25000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 40000 },
+        { "action": "log_summary", "min_milestone": "tts" },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

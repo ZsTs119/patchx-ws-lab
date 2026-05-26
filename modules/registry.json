@@ -3,11 +3,13 @@
   "modules": [
     { "id": "listen-mode", "type": "json", "path": "./modules/listen-mode.json" },
     { "id": "hello-capabilities", "type": "json", "path": "./modules/hello-capabilities.json" },
+    { "id": "required-main-flow", "type": "json", "path": "./modules/required-main-flow.json" },
     { "id": "active-greet", "type": "json", "path": "./modules/active-greet.json" },
     { "id": "environment-vision", "type": "json", "path": "./modules/environment-vision.json" },
     { "id": "auth-ota-tools", "type": "json", "path": "./modules/auth-ota-tools.json" },
     { "id": "interrupt-tools", "type": "json", "path": "./modules/interrupt-tools.json" },
     { "id": "audio-matrix", "type": "json", "path": "./modules/audio-matrix.json" },
+    { "id": "asr-nostream", "type": "json", "path": "./modules/asr-nostream.json" },
     { "id": "reconnect-error-protocol", "type": "json", "path": "./modules/reconnect-error-protocol.json" },
     { "id": "heartbeat-tools", "type": "js", "path": "./modules/heartbeat-tools.js" },
     { "id": "invalid-sample", "type": "json", "path": "./modules/invalid-sample.json" }

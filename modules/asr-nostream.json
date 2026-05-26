@@ -1,0 +1,97 @@
+{
+  "id": "asr-nostream",
+  "name": "ASR Nostream",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "通过 hello.asr_language 路由到 Doubao bigmodel_nostream，并使用服务端 TTS 生成真实语音后按流式上行推给 ASR。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-nostream-ja",
+      "label": "Doubao Nostream 日语",
+      "description": "验证 ja-JP 通过新增 nostream 路由完成音频输入、ASR 收尾和日志证据闭环。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "asr_language": "ja-JP", "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "こんにちは。今日は天気がいいです。",
+          "duration_ms": 1800,
+          "require_speech": true,
+          "min_outbound_binary": 8
+        },
+        { "action": "wait_ws", "type": "stt", "timeout_ms": 25000 },
+        { "action": "log_summary", "min_milestone": "asr" },
+        { "action": "log_expect", "keywords": ["listen_stop_finalize.start", "nostream_finalize|eou"], "timeout_ms": 8000 }
+      ]
+    },
+    {
+      "id": "module.asr-nostream-th",
+      "label": "Doubao Nostream 泰语",
+      "description": "验证 th-TH 通过新增 nostream 路由完成音频输入、ASR 收尾和日志证据闭环。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "asr_language": "th-TH", "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "สวัสดี วันนี้อากาศดีมาก",
+          "duration_ms": 1800,
+          "require_speech": true,
+          "min_outbound_binary": 8
+        },
+        { "action": "wait_ws", "type": "stt", "timeout_ms": 25000 },
+        { "action": "log_summary", "min_milestone": "asr" },
+        { "action": "log_expect", "keywords": ["listen_stop_finalize.start", "nostream_finalize|eou"], "timeout_ms": 8000 }
+      ]
+    },
+    {
+      "id": "module.asr-nostream-ja-smart-interrupt",
+      "label": "Doubao Nostream 日语智能打断",
+      "description": "验证 ja-JP nostream 在服务端 TTS 播放中收到用户语音时，通过 VAD 停止当前 TTS，并用最终识别文本进入智能打断链路。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "asr_language": "ja-JP", "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "日本語で一から五十まで、途中で短い説明を入れながら、ゆっくり長めに読み上げてください。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        {
+          "action": "stream_tts",
+          "text": "すみません、今の説明を短くまとめてください。",
+          "duration_ms": 1800,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "tts", "state": "stop", "reason": "interrupt", "timeout_ms": 30000 }
+          ]
+        },
+        { "action": "wait_ws", "type": "stt", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 40000 },
+        { "action": "log_summary", "min_milestone": "asr" },
+        {
+          "action": "log_expect",
+          "keywords": ["nostream_interrupt|vad_tts_stop", "smart_interrupt|req", "interrupt_user_speech"],
+          "any_keywords": ["nostream_interrupt|interrupt", "nostream_interrupt|api_fail"],
+          "timeout_ms": 10000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

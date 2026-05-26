@@ -126,12 +126,53 @@ export class ScenarioRunner {
             throw new Error(`outbound audio bytes too low: ${delta.outboundBytes}`);
           }
           this.markLastStep(steps, "pass", `${delta.outboundBinary} frames/${delta.outboundBytes}B`);
+        } else if (step.action === "stream_tts") {
+          if (!this.tools.streamGeneratedTts) {
+            throw new Error("stream_tts tool is unavailable");
+          }
+          const expectedEvents = normalizeExpectedEvents(step.expect_during || step.expectDuring);
+          const eventWatchers = expectedEvents.map((expectation) => this.waitFor(
+            (candidate) => matchesEvent(candidate, expectation),
+            expectation.timeout_ms || step.timeout_ms || 12000
+          ).then((event) => ({ event }), (error) => ({ error })));
+          const before = this.store.summary();
+          let data;
+          let matchedEvents = [];
+          try {
+            data = await this.tools.streamGeneratedTts(this.resolveText(step.text || this.getText()), step);
+            const watched = expectedEvents.length ? await Promise.all(eventWatchers) : [];
+            const failed = watched.find((item) => item.error);
+            if (failed) {
+              throw failed.error;
+            }
+            matchedEvents = watched.map((item) => item.event);
+          } catch (error) {
+            throw error;
+          }
+          const after = this.store.summary();
+          const delta = {
+            outboundBinary: after.outboundBinary - before.outboundBinary,
+            outboundBytes: after.outboundBytes - before.outboundBytes,
+            inboundBinary: after.inboundBinary - before.inboundBinary,
+            inboundBytes: after.inboundBytes - before.inboundBytes
+          };
+          if (step.min_outbound_binary && delta.outboundBinary < step.min_outbound_binary) {
+            throw new Error(`outbound audio frames too low: ${delta.outboundBinary}`);
+          }
+          if (step.min_outbound_bytes && delta.outboundBytes < step.min_outbound_bytes) {
+            throw new Error(`outbound audio bytes too low: ${delta.outboundBytes}`);
+          }
+          const eventNote = matchedEvents.length
+            ? `; ${matchedEvents.map((event) => eventNoteFor(event)).join(", ")}`
+            : "";
+          this.markLastStep(steps, "pass", `${data?.speech ? "speech" : "tone"} ${delta.outboundBinary} frames/${delta.outboundBytes}B${eventNote}`);
         } else if (step.action === "send_json") {
           this.wsClient.sendJson(this.withSession(this.resolve(step.payload || {})));
           this.markLastStep(steps, "pass");
         } else if (step.action === "send_hello") {
           const set = JSON.parse(this.resolveText(JSON.stringify(step.set || {})));
           this.wsClient.sendJson(applyOverrides(this.getHello(), set, step.omit || []));
+          this.tools.markHelloSent?.();
           this.markLastStep(steps, "pass");
         } else if (step.action === "send_raw") {
           this.wsClient.sendRaw(this.resolveText(step.text || ""), step.label || "raw");
@@ -161,6 +202,35 @@ export class ScenarioRunner {
             throw new Error(`log milestone missing: ${milestone}`);
           }
           this.markLastStep(steps, "pass", `${summary.findings?.length || 0} findings`);
+        } else if (step.action === "log_expect") {
+          if (!this.hasCapability("logs")) {
+            degraded = true;
+            warnings.push("日志证据不可用，log_expect 已跳过。");
+            this.markLastStep(steps, "skipped", "日志证据不可用");
+            continue;
+          }
+          const keywords = normalizeKeywords(step);
+          const anyKeywords = normalizeAnyKeywords(step);
+          if (!keywords.length && !anyKeywords.length) {
+            throw new Error("log_expect requires keyword, keywords, any_keyword or any_keywords");
+          }
+          const matches = [];
+          for (const keyword of keywords) {
+            const matched = await this.waitForLogKeyword(keyword, step);
+            const minimum = step.min_matches || 1;
+            if (matched < minimum) {
+              throw new Error(`log keyword missing: ${keyword}`);
+            }
+            matches.push(`${keyword}:${matched}`);
+          }
+          if (anyKeywords.length) {
+            const matched = await this.waitForAnyLogKeyword(anyKeywords, step);
+            if (!matched) {
+              throw new Error(`log keyword missing one of: ${anyKeywords.join(", ")}`);
+            }
+            matches.push(`${matched.keyword}:${matched.count}`);
+          }
+          this.markLastStep(steps, "pass", matches.join(", "));
         } else {
           throw new Error(`unsupported scenario action: ${step.action}`);
         }
@@ -249,6 +319,41 @@ export class ScenarioRunner {
     const snapshot = this.getCapabilities?.();
     return snapshot?.capabilities?.[key]?.status === "ok";
   }
+
+  async waitForLogKeyword(keyword, step = {}) {
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 500;
+    const minimum = step.min_matches || 1;
+    const deadline = performance.now() + timeoutMs;
+    let lastMatched = 0;
+    do {
+      const logs = await this.api.logs({ ...this.getFilters(), keyword, limit: step.limit || 500 });
+      lastMatched = logs.summary?.total_matched ?? logs.entries?.length ?? 0;
+      if (lastMatched >= minimum) {
+        return lastMatched;
+      }
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    return lastMatched;
+  }
+
+  async waitForAnyLogKeyword(keywords, step = {}) {
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 500;
+    const minimum = step.min_matches || 1;
+    const deadline = performance.now() + timeoutMs;
+    do {
+      for (const keyword of keywords) {
+        const logs = await this.api.logs({ ...this.getFilters(), keyword, limit: step.limit || 500 });
+        const count = logs.summary?.total_matched ?? logs.entries?.length ?? 0;
+        if (count >= minimum) {
+          return { keyword, count };
+        }
+      }
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    return null;
+  }
 }
 
 function isUsefulServerResponse(event) {
@@ -265,7 +370,39 @@ function matchesEvent(event, step) {
   if (step.kind && event.kind !== step.kind) return false;
   if (step.type && event.type !== step.type && event.payload?.type !== step.type) return false;
   if (step.state && event.payload?.state !== step.state) return false;
+  if (step.reason && event.payload?.reason !== step.reason) return false;
+  if (step.payload && typeof step.payload === "object") {
+    for (const [key, value] of Object.entries(step.payload)) {
+      if (event.payload?.[key] !== value) return false;
+    }
+  }
   return true;
+}
+
+function normalizeExpectedEvents(raw) {
+  if (!raw) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+function normalizeKeywords(step = {}) {
+  const raw = step.keywords ?? step.keyword;
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : [raw])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function normalizeAnyKeywords(step = {}) {
+  const raw = step.any_keywords ?? step.any_keyword;
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : [raw])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function eventNoteFor(event) {
+  const payload = event.payload || {};
+  return [payload.type || event.type || event.kind, payload.state, payload.reason].filter(Boolean).join("/");
 }
 
 function applyOverrides(payload, set = {}, omit = []) {

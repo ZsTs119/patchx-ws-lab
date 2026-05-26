@@ -365,8 +365,10 @@ const scenarioRunner = new ScenarioRunner({
   tools: {
     validateConnection: () => assertEndpointCompatibleWithPage(normalizeWsInput(dom.wsUrlInput.value), normalizeRestInput(dom.restBaseInput.value)),
     connectHello: () => openWsAndSendHello(),
+    markHelloSent: () => markScenarioHelloSent(),
     setAudioProfile: (profile) => applyScenarioAudioProfile(profile),
-    streamSilence: (durationMs) => streamScenarioSilence(durationMs)
+    streamSilence: (durationMs) => streamScenarioSilence(durationMs),
+    streamGeneratedTts: (text, options) => streamScenarioGeneratedTts(text, options)
   }
 });
 
@@ -2782,12 +2784,76 @@ function applyScenarioAudioProfile(profile = {}) {
   saveState();
 }
 
+function markScenarioHelloSent() {
+  state.activeAudioProfile = getDraftAudioProfile();
+  state.activePlaybackProfile = getDraftPlaybackProfile();
+  updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
+  saveState();
+}
+
 async function streamScenarioSilence(durationMs) {
   audioStreamer.startSilence();
   await delay(durationMs);
   audioStreamer.stop();
   const profile = ensureActiveAudioProfile();
   await delay(profile.frameDuration + 120);
+}
+
+async function streamScenarioGeneratedTts(text, options = {}) {
+  const profile = ensureActiveAudioProfile();
+  const requestedText = String(text || "").trim();
+  if (!requestedText) {
+    throw new Error("stream_tts text is required");
+  }
+
+  audioStreamer.reserve("generating");
+  let data;
+  try {
+    data = await api.tts({
+      text: requestedText,
+      sample_rate: profile.sampleRate,
+      duration_ms: Number(options.duration_ms || options.durationMs || 1400)
+    });
+    markCapabilityOk("tts", data?.speech ? "真实 TTS 可用" : "TTS 测试音可用");
+  } catch (error) {
+    markCapabilityFromError("tts", error);
+    throw error;
+  } finally {
+    audioStreamer.releaseReservation();
+  }
+
+  if (!data?.no_secrets) {
+    throw new Error("TTS endpoint did not confirm no_secrets");
+  }
+  if (options.require_speech !== false && !data.speech) {
+    throw new Error("TTS endpoint returned local tone; ASR nostream scenario requires speech=true");
+  }
+
+  store.add({
+    direction: "system",
+    type: "audio",
+    label: data.speech ? "真实 TTS 已生成" : "本地测试音已生成",
+    payload: {
+      provider: data.provider,
+      format: data.format,
+      mime_type: data.mime_type,
+      bytes: data.bytes,
+      speech: Boolean(data.speech),
+      compatibility: data.compatibility
+    }
+  });
+  addAudioInputCue({
+    source: data.speech ? "generated" : "tone",
+    label: data.speech ? "客户端 生成语音" : "客户端 测试音",
+    text: data.speech ? requestedText : "本地测试音已推流，等待传输链路反馈"
+  });
+  if (data.speech) {
+    rememberExpectedInputText(requestedText, 45000);
+  }
+
+  const blob = base64ToBlob(data.audio_base64, data.mime_type);
+  await audioStreamer.streamBlob(blob, data.provider || "tts");
+  return data;
 }
 
 async function generateAndStreamTts() {
@@ -4441,6 +4507,7 @@ function scenarioExpectedEvidence(scenario = {}) {
     if (step.action === "wait_ws" && step.type) expects.add(`WS ${step.type}`);
     if (step.action === "expect_binary") expects.add("下行音频");
     if (step.action === "log_summary") expects.add("日志里程碑");
+    if (step.action === "log_expect") expects.add("日志关键字");
   }
   return expects.size ? `期待 ${Array.from(expects).join(" / ")}` : "期待步骤全部通过";
 }
@@ -4454,6 +4521,7 @@ function scenarioPrecondition(scenario = {}) {
 function scenarioFailureHint(scenario = {}) {
   if (scenario.builtin) return "失败看步骤与日志证据";
   const actions = new Set((scenario.steps || []).map((step) => step.action));
+  if (actions.has("log_expect")) return "失败先看日志关键字";
   if (actions.has("log_summary")) return "失败先看日志里程碑";
   if (actions.has("expect_binary")) return "失败先看音频帧";
   if (actions.has("wait_ws")) return "失败先看链路阶段";
