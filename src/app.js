@@ -383,6 +383,9 @@ const state = {
   customProtocolTemplates: [],
   uiMode: "pure",
   recentConversationKeys: [],
+  activeTtsConversationSlots: new Map(),
+  activeTtsConversationRecords: new Map(),
+  ttsConversationSeq: 0,
   customEndpointConfigs: [],
   healthStatus: {
     rest: "unknown",
@@ -3901,23 +3904,275 @@ function renderEventStream() {
   }).join("");
 }
 
+const TTS_CONVERSATION_FINAL_STATES = new Set(["sentence_end", "stop", "end", "completed", "complete"]);
+const TTS_CONVERSATION_INTERRUPT_REASONS = new Set(["interrupt", "abort"]);
+const TTS_TYPEWRITER_MIN_MS = 700;
+const TTS_TYPEWRITER_MAX_MS = 12000;
+
 function appendConversation(event) {
+  if (!event) return;
+  if (event.direction === "client" && event.payload?.type === "interrupt") {
+    finishActiveTtsConversations("interrupted");
+  }
+  if (handleTtsConversationEvent(event)) return;
   const message = conversationMessage(event);
   if (!message) return;
   const key = message.dedupeKey || `${message.kind}:${message.text}`;
-  const now = Date.now();
-  state.recentConversationKeys = state.recentConversationKeys.filter((item) => now - item.at < (item.ttlMs || 4000));
-  if (message.suppressDuplicate && state.recentConversationKeys.some((item) => item.key === key)) return;
-  state.recentConversationKeys.push({ key, at: now, ttlMs: message.dedupeTtlMs || 4000 });
-  if (state.recentConversationKeys.length > 80) {
-    state.recentConversationKeys.shift();
-  }
+  if (message.suppressDuplicate && hasRecentConversationKey(key)) return;
+  rememberConversationKey(key, message.dedupeTtlMs || 4000);
+  appendConversationElement(message);
+}
+
+function appendConversationElement(message) {
   const el = document.createElement("div");
   el.className = `message ${message.kind}`;
   if (message.source) el.dataset.source = message.source;
-  el.innerHTML = `<small>${escapeHtml(message.label)}</small><p>${escapeHtml(message.text)}</p>`;
+  const labelEl = document.createElement("small");
+  labelEl.textContent = message.label;
+  const textEl = document.createElement("p");
+  textEl.textContent = message.text;
+  el.append(labelEl, textEl);
   dom.conversationList.appendChild(el);
+  scrollConversationToBottom();
+  return { el, labelEl, textEl };
+}
+
+function scrollConversationToBottom() {
   dom.conversationList.scrollTop = dom.conversationList.scrollHeight;
+}
+
+function pruneRecentConversationKeys(now = Date.now()) {
+  state.recentConversationKeys = state.recentConversationKeys.filter((item) => now - item.at < (item.ttlMs || 4000));
+  if (state.recentConversationKeys.length > 80) {
+    state.recentConversationKeys = state.recentConversationKeys.slice(-80);
+  }
+}
+
+function hasRecentConversationKey(key) {
+  pruneRecentConversationKeys();
+  return state.recentConversationKeys.some((item) => item.key === key);
+}
+
+function rememberConversationKey(key, ttlMs = 4000) {
+  pruneRecentConversationKeys();
+  state.recentConversationKeys.push({ key, at: Date.now(), ttlMs });
+}
+
+function handleTtsConversationEvent(event) {
+  if (event.direction !== "server" || event.payload?.type !== "tts") return false;
+  const payload = event.payload;
+  const stateName = payload.state || "";
+  const text = finalReadableText(payload);
+  if (stateName === "sentence_start") {
+    if (String(text || "").trim()) {
+      upsertTtsConversationMessage(payload, text);
+    }
+    return true;
+  }
+  if (TTS_CONVERSATION_FINAL_STATES.has(stateName)) {
+    finalizeTtsConversationMessage(payload, text, {
+      interrupted: TTS_CONVERSATION_INTERRUPT_REASONS.has(payload.reason || "")
+    });
+    return true;
+  }
+  return true;
+}
+
+function upsertTtsConversationMessage(payload, text) {
+  const displayText = String(text || "").trim();
+  if (!displayText) return;
+  const slot = ttsConversationSlot(payload, displayText);
+  let key = slot ? state.activeTtsConversationSlots.get(slot) : "";
+  if (!key) {
+    key = `server-tts-stream:${++state.ttsConversationSeq}`;
+    if (slot) state.activeTtsConversationSlots.set(slot, key);
+  }
+  let record = state.activeTtsConversationRecords.get(key);
+  if (!record) {
+    record = createTtsConversationRecord(key, slot);
+    state.activeTtsConversationRecords.set(key, record);
+  }
+  record.slot = slot || record.slot;
+  record.fullText = displayText;
+  record.dedupeKey = ttsConversationDedupeKey(displayText);
+  record.labelEl.textContent = "服务端 语音回复";
+  record.el.classList.add("streaming");
+  record.el.dataset.state = "streaming";
+  startTtsTypewriter(record, displayText);
+}
+
+function createTtsConversationRecord(key, slot) {
+  const view = appendConversationElement({
+    kind: "server",
+    label: "服务端 语音回复",
+    text: "",
+    source: "tts"
+  });
+  view.el.classList.add("streaming");
+  view.el.dataset.state = "streaming";
+  view.el.dataset.ttsKey = key;
+  return {
+    key,
+    slot,
+    fullText: "",
+    visibleText: "",
+    frameId: 0,
+    dedupeKey: "",
+    ...view
+  };
+}
+
+function finalizeTtsConversationMessage(payload, text, options = {}) {
+  const displayText = String(text || "").trim();
+  const key = resolveActiveTtsConversationKey(payload, displayText);
+  if (key) {
+    const record = state.activeTtsConversationRecords.get(key);
+    const finalText = displayText || record?.fullText || "";
+    if (record) {
+      finishTtsConversationRecord(record, options.interrupted ? "interrupted" : "complete", finalText);
+    }
+    return;
+  }
+  if (!displayText && payload.state === "stop") {
+    finishActiveTtsConversations(options.interrupted ? "interrupted" : "complete");
+    return;
+  }
+  if (!displayText) return;
+  const dedupeKey = ttsConversationDedupeKey(displayText);
+  if (hasRecentConversationKey(dedupeKey)) return;
+  const view = appendConversationElement({
+    kind: "server",
+    label: options.interrupted ? "服务端 语音回复 · 已打断" : "服务端 语音回复",
+    text: displayText,
+    source: "tts"
+  });
+  view.el.dataset.state = options.interrupted ? "interrupted" : "complete";
+  rememberConversationKey(dedupeKey, 4000);
+}
+
+function resolveActiveTtsConversationKey(payload, text) {
+  const slot = ttsConversationSlot(payload, text);
+  if (slot && state.activeTtsConversationSlots.has(slot)) {
+    return state.activeTtsConversationSlots.get(slot);
+  }
+  const normalized = normalizeConversationText(text);
+  if (normalized) {
+    for (const record of state.activeTtsConversationRecords.values()) {
+      if (normalizeConversationText(record.fullText) === normalized) return record.key;
+    }
+  }
+  if (state.activeTtsConversationRecords.size === 1) {
+    return state.activeTtsConversationRecords.keys().next().value;
+  }
+  return "";
+}
+
+function finishActiveTtsConversations(status) {
+  for (const record of Array.from(state.activeTtsConversationRecords.values())) {
+    finishTtsConversationRecord(record, status, record.fullText);
+  }
+}
+
+function finishTtsConversationRecord(record, status, text) {
+  cancelTtsTypewriter(record);
+  const finalText = String(text || record.fullText || "").trim();
+  if (finalText) {
+    setTtsConversationText(record, finalText);
+    record.dedupeKey = record.dedupeKey || ttsConversationDedupeKey(finalText);
+  }
+  record.el.classList.remove("streaming");
+  record.el.dataset.state = status;
+  record.labelEl.textContent = status === "interrupted" ? "服务端 语音回复 · 已打断" : "服务端 语音回复";
+  if (record.dedupeKey) {
+    rememberConversationKey(record.dedupeKey, 4000);
+  }
+  releaseTtsConversationRecord(record);
+}
+
+function releaseTtsConversationRecord(record) {
+  for (const [slot, key] of Array.from(state.activeTtsConversationSlots.entries())) {
+    if (key === record.key) state.activeTtsConversationSlots.delete(slot);
+  }
+  state.activeTtsConversationRecords.delete(record.key);
+}
+
+function startTtsTypewriter(record, text) {
+  cancelTtsTypewriter(record);
+  const fullText = String(text || "");
+  const graphemes = splitGraphemes(fullText);
+  const startCount = Math.min(splitGraphemes(record.visibleText || "").length, graphemes.length);
+  if (prefersReducedMotion() || startCount >= graphemes.length) {
+    setTtsConversationText(record, fullText);
+    return;
+  }
+  const initialCount = Math.min(graphemes.length, Math.max(startCount, 1));
+  setTtsConversationText(record, graphemes.slice(0, initialCount).join(""));
+  if (initialCount >= graphemes.length) return;
+  const durationMs = estimateTtsTypewriterDuration(fullText);
+  const startedAt = performance.now();
+  const remaining = graphemes.length - initialCount;
+  const tick = (now) => {
+    const progress = Math.min(1, Math.max(0, (now - startedAt) / durationMs));
+    const nextCount = Math.min(graphemes.length, initialCount + Math.max(1, Math.round(remaining * progress)));
+    setTtsConversationText(record, graphemes.slice(0, nextCount).join(""));
+    if (nextCount < graphemes.length && state.activeTtsConversationRecords.has(record.key)) {
+      record.frameId = requestAnimationFrame(tick);
+    } else {
+      record.frameId = 0;
+    }
+  };
+  record.frameId = requestAnimationFrame(tick);
+}
+
+function cancelTtsTypewriter(record) {
+  if (!record?.frameId) return;
+  cancelAnimationFrame(record.frameId);
+  record.frameId = 0;
+}
+
+function setTtsConversationText(record, text) {
+  record.visibleText = String(text || "");
+  record.textEl.textContent = record.visibleText;
+  scrollConversationToBottom();
+}
+
+function estimateTtsTypewriterDuration(text) {
+  const graphemes = splitGraphemes(text).filter((item) => item.trim());
+  const duration = graphemes.reduce((total, item) => {
+    if (/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/u.test(item)) return total + 105;
+    if (/[\u0e00-\u0e7f]/u.test(item)) return total + 95;
+    return total + 55;
+  }, 420);
+  return Math.max(TTS_TYPEWRITER_MIN_MS, Math.min(TTS_TYPEWRITER_MAX_MS, duration));
+}
+
+function splitGraphemes(text) {
+  const value = String(text || "");
+  if (!value) return [];
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    return Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value), (item) => item.segment);
+  }
+  return Array.from(value);
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+}
+
+function ttsConversationSlot(payload = {}, text = "") {
+  const session = payload.session_id || wsClient.sessionId || "";
+  const trace = payload.trace_id || "";
+  const ttsType = payload.tts_type || "";
+  const index = payload.index ?? payload.text_index ?? payload.textIndex;
+  if (index !== undefined && index !== null && index !== "") {
+    return `slot:${session}:${trace}:${ttsType}:${index}`;
+  }
+  const normalized = normalizeConversationText(text);
+  return normalized ? `text:${session}:${trace}:${ttsType}:${normalized}` : "";
+}
+
+function ttsConversationDedupeKey(text) {
+  return `server-tts:${normalizeConversationText(text) || String(text || "").trim()}`;
 }
 
 function conversationMessage(event) {
@@ -3956,19 +4211,6 @@ function conversationMessage(event) {
         dedupeKey: `client-asr:${normalizeConversationText(text)}`,
         dedupeTtlMs: 4000
       };
-    }
-    if (event.payload.type === "tts") {
-      const stateName = event.payload.state || "";
-      if (!["sentence_end", "stop", "end", "completed", "complete"].includes(stateName)) return null;
-      const text = finalReadableText(event.payload);
-      return text ? {
-        kind: "server",
-        label: "服务端 语音回复",
-        text,
-        suppressDuplicate: true,
-        dedupeKey: `server-tts:${normalizeConversationText(text)}`,
-        dedupeTtlMs: 4000
-      } : null;
     }
   }
   return null;
