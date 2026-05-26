@@ -22,12 +22,48 @@
           "action": "stream_tts",
           "text": "こんにちは。今日は天気がいいです。",
           "duration_ms": 1800,
+          "trailing_silence_ms": 1800,
           "require_speech": true,
-          "min_outbound_binary": 8
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 }
+          ]
         },
-        { "action": "wait_ws", "type": "stt", "timeout_ms": 25000 },
         { "action": "log_summary", "min_milestone": "asr" },
-        { "action": "log_expect", "keywords": ["listen_stop_finalize.start", "nostream_finalize|eou"], "timeout_ms": 8000 }
+        {
+          "action": "log_expect",
+          "keywords": ["nostream_definite|eou", "asr_release.listen_stop"],
+          "timeout_ms": 8000
+        }
+      ]
+    },
+    {
+      "id": "module.asr-nostream-ja-vad-definite",
+      "label": "Doubao Nostream 日语 VAD 判停",
+      "description": "验证 ja-JP nostream 在不发送 listen:stop 的情况下，依赖豆包服务端 VAD definite 自动进入 EOU。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "asr_language": "ja-JP", "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "こんにちは。今日は天気がいいです。",
+          "duration_ms": 1800,
+          "trailing_silence_ms": 1800,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "asr" },
+        { "action": "log_expect", "keywords": ["nostream_definite|listener", "nostream_definite|eou"], "timeout_ms": 10000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
       ]
     },
     {
@@ -46,12 +82,19 @@
           "action": "stream_tts",
           "text": "สวัสดี วันนี้อากาศดีมาก",
           "duration_ms": 1800,
+          "trailing_silence_ms": 1800,
           "require_speech": true,
-          "min_outbound_binary": 8
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 }
+          ]
         },
-        { "action": "wait_ws", "type": "stt", "timeout_ms": 25000 },
         { "action": "log_summary", "min_milestone": "asr" },
-        { "action": "log_expect", "keywords": ["listen_stop_finalize.start", "nostream_finalize|eou"], "timeout_ms": 8000 }
+        {
+          "action": "log_expect",
+          "keywords": ["nostream_definite|eou", "asr_release.listen_stop"],
+          "timeout_ms": 8000
+        }
       ]
     },
     {
@@ -78,10 +121,10 @@
           "require_speech": true,
           "min_outbound_binary": 8,
           "expect_during": [
-            { "type": "tts", "state": "stop", "reason": "interrupt", "timeout_ms": 30000 }
+            { "type": "tts", "state": "stop", "reason": "interrupt", "timeout_ms": 30000 },
+            { "type": "stt", "timeout_ms": 30000 }
           ]
         },
-        { "action": "wait_ws", "type": "stt", "timeout_ms": 30000 },
         { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 40000 },
         { "action": "log_summary", "min_milestone": "asr" },
         {

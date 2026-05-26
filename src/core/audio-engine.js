@@ -23,14 +23,18 @@ export class AudioStreamer {
     await this.streamPCM(pcm, profile, "wav", { assumeBusy: true, trailingSilenceMs: 600 });
   }
 
-  async streamBlob(blob, label = "generated") {
+  async streamBlob(blob, label = "generated", options = {}) {
     this.assertIdle();
     const profile = this.getProfile();
     this.mode = "decoding";
     this.publishState("decoding");
     const file = new File([blob], `${label}.wav`, { type: blob.type || "audio/wav" });
     const pcm = await decodeAudioFileToPCM16(file, profile.sampleRate);
-    await this.streamPCM(pcm, profile, label, { assumeBusy: true, trailingSilenceMs: 600 });
+    await this.streamPCM(pcm, profile, label, {
+      assumeBusy: true,
+      trailingSilenceMs: options.trailingSilenceMs ?? options.trailing_silence_ms ?? 600,
+      sendListenStop: options.sendListenStop ?? options.send_listen_stop ?? true
+    });
   }
 
   async streamPCM(pcm, profile, label, options = {}) {
@@ -59,7 +63,9 @@ export class AudioStreamer {
       await this.streamTrailingSilence(profile, encoder, options.trailingSilenceMs);
     } finally {
       encoder?.destroy();
-      this.sendListenState("stop", label);
+      if (options.sendListenStop !== false) {
+        this.sendListenState("stop", label);
+      }
       this.mode = "idle";
       this.publishState("idle");
       this.stopRequested = false;

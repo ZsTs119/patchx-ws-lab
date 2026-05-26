@@ -2855,7 +2855,7 @@ async function streamScenarioGeneratedTts(text, options = {}) {
   }
 
   const blob = base64ToBlob(data.audio_base64, data.mime_type);
-  await audioStreamer.streamBlob(blob, data.provider || "tts");
+  await audioStreamer.streamBlob(blob, data.provider || "tts", options);
   return data;
 }
 
