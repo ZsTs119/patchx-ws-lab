@@ -3,7 +3,7 @@ import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-
 import { DownlinkAudioPlayer } from "./core/downlink-audio-player.js";
 import { DevLabApi } from "./core/dev-lab-api.js";
 import { eventText, ProtocolStore } from "./core/protocol-store.js";
-import { ModuleHost } from "./core/module-host.js";
+import { ModuleHost } from "./core/module-host.js?v=20260526-ja-tts-split2";
 import { ScenarioRunner } from "./core/scenario-runner.js";
 import { WsClient } from "./core/ws-client.js";
 import { enhanceFilePickers } from "./ui/file-picker.js";

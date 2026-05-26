@@ -1,0 +1,37 @@
+{
+  "id": "tts-japanese-soft-split",
+  "name": "日文 TTS 软切分",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证日文 TTS 长句在顿号/逗号处提前软切分，避免等到整句结束才进入播报。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.tts-japanese-soft-split",
+      "label": "日文 TTS 软切分",
+      "description": "要求服务端输出一段带日文读点的长句，验收 tts_japanese_soft_split 日志、服务端 TTS 起播和二进制音频下发。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "日本語で、次の一文だけを一字一句変えずに返してください。今日はね、ちょっと面白いことがあって、あなたに話したくて、でもどこから話そうかなって考えていたの、朝から小さな発見が続いて、胸の奥がふわっと温かくなって、誰かに聞いてほしくて、まずあなたのことを思い出したんだ。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": ["tts_japanese_soft_split|"],
+          "timeout_ms": 15000
+        },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 50000 },
+        { "action": "log_summary", "min_milestone": "tts" },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

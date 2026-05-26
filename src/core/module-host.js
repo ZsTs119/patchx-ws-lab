@@ -1,4 +1,4 @@
-const WS_LAB_ASSET_VERSION = "20260526-asr-scenes1";
+const WS_LAB_ASSET_VERSION = "20260526-ja-tts-split2";
 
 export class ModuleHost {
   constructor({ store }) {
