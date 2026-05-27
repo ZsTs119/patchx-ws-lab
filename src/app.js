@@ -1352,8 +1352,7 @@ function closeAllDrawers() {
 
 function updateBackdrop() {
   const active = dom.appShell.classList.contains("drawer-client-open")
-    || dom.appShell.classList.contains("drawer-inspector-open")
-    || (dom.protocolDockPanel && !dom.protocolDockPanel.hidden);
+    || dom.appShell.classList.contains("drawer-inspector-open");
   if (dom.drawerBackdrop) dom.drawerBackdrop.hidden = !active;
 }
 

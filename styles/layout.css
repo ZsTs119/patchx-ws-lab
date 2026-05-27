@@ -557,6 +557,20 @@
   animation: fade-in 160ms ease both;
 }
 
+@media (min-width: 641px) {
+  .top-status-strip #saveEndpointBtn {
+    justify-self: start;
+    width: auto;
+  }
+
+  .app-shell.audience-debug .drawer-backdrop {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: none;
+  }
+}
+
 .app-shell.inspector-focus .chat-panel,
 .app-shell.inspector-focus .evidence-panel {
   min-width: 0;
