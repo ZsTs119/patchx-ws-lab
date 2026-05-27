@@ -12,6 +12,7 @@ import { activateTab, bindTabs } from "./ui/tabs.js";
 import { enhanceSelectControls, refreshSelectControl, refreshSelectControls } from "./ui/select-popover.js?v=20260525-polish2";
 
 const STORAGE_KEY = "patchx-ws-lab-v1";
+const EXTERNAL_DEVICE_IDENTITY_KEY = "patchx-ws-lab-external-device-identity-v1";
 const MOBILE_ACCOUNT_HINT_KEY = "patchx-ws-lab-mobile-account-hint-v1";
 const CUSTOM_ENDPOINT_ID = "custom";
 const CUSTOM_TEMPLATE_PREFIX = "custom-protocol-";
@@ -704,12 +705,16 @@ function authProfileKey(profile) {
 }
 
 function resetRuntimeSession(reason = "runtime_reset") {
+  const resetAuthMediaState = reason === "auth_logout" || reason === "auth_profile_change";
   try {
     audioStreamer?.stop();
   } catch {
     // Best effort cleanup only; auth transitions should never be blocked by audio state.
   }
-  downlinkAudioPlayer?.clear(reason, { keepUnlocked: true, keepStats: false });
+  if (resetAuthMediaState) {
+    updateMicButtonState("idle");
+  }
+  downlinkAudioPlayer?.clear(reason, { keepUnlocked: !resetAuthMediaState, keepStats: false });
   if (wsClient.socket || wsClient.readyState !== WebSocket.CLOSED || wsClient.sessionId) {
     wsClient.disconnect({ silent: true });
   }
@@ -762,6 +767,9 @@ function applyAuthProfile() {
   const profile = state.authProfile || createLocalInternalProfile();
   const external = profile.audience === "external";
   state.audienceDebugMode = false;
+  if (external) {
+    applyExternalDeviceIdentity();
+  }
   closeAllMobileSheets();
   closeAllDrawers();
   dom.appShell.classList.toggle("audience-external", external);
@@ -777,6 +785,61 @@ function applyAuthProfile() {
   renderAudienceStatus();
   autoResizeComposer();
   scheduleMobileAccountHint();
+}
+
+function applyExternalDeviceIdentity() {
+  const identity = getExternalDeviceIdentity();
+  state.identity = identity;
+  state.selectedRole = inferRoleFromDeviceId(identity.deviceId);
+  writeIdentityToInputs();
+  renderRoles();
+  updateHelloPreview();
+  renderInspectorContext();
+  renderOverview();
+}
+
+function getExternalDeviceIdentity() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EXTERNAL_DEVICE_IDENTITY_KEY) || "null");
+    const identity = normalizeStoredIdentity(saved);
+    if (identity) {
+      saveExternalDeviceIdentity(identity);
+      return identity;
+    }
+  } catch {
+    // Fall through and create a fresh device identity.
+  }
+  const identity = createIdentity("01");
+  saveExternalDeviceIdentity(identity);
+  return identity;
+}
+
+function normalizeStoredIdentity(value) {
+  if (!value || typeof value !== "object") return null;
+  const deviceId = String(value.deviceId || value.device_id || "").trim();
+  const userId = String(value.userId || value.user_id || "").trim();
+  if (!deviceId || !userId) return null;
+  const roleCode = inferRoleFromDeviceId(deviceId);
+  const fallback = createIdentity(roleCode);
+  return {
+    roleCode,
+    deviceId,
+    userId,
+    traceId: String(value.traceId || value.trace_id || fallback.traceId).trim(),
+    clientId: String(value.clientId || value.client_id || fallback.clientId).trim(),
+    deviceMac: String(value.deviceMac || value.device_mac || fallback.deviceMac).trim(),
+    clientIp: String(value.clientIp || value.client_ip || fallback.clientIp).trim(),
+    deviceName: String(value.deviceName || value.device_name || fallback.deviceName).trim(),
+    token: String(value.token || fallback.token).trim()
+  };
+}
+
+function saveExternalDeviceIdentity(identity) {
+  try {
+    localStorage.setItem(EXTERNAL_DEVICE_IDENTITY_KEY, JSON.stringify(identity));
+  } catch {
+    // The identity can still be used for the current session if storage is unavailable.
+  }
 }
 
 function applyProfileEndpoint(profile = state.authProfile) {
@@ -4974,12 +5037,20 @@ function profilesEqual(a, b) {
 }
 
 function saveState() {
+  let persistedIdentity = null;
+  if (state.authProfile?.audience === "external") {
+    try {
+      persistedIdentity = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null")?.identity || null;
+    } catch {
+      persistedIdentity = null;
+    }
+  }
   const data = {
     wsUrl: normalizeWsInput(dom.wsUrlInput?.value),
     restBase: normalizeRestInput(dom.restBaseInput?.value),
     clientTab: state.clientTab,
     selectedRole: state.selectedRole,
-    identity: readIdentityFromInputsSafe(),
+    identity: state.authProfile?.audience === "external" ? persistedIdentity : readIdentityFromInputsSafe(),
     audio: {
       format: dom.audioFormatInput?.value,
       sampleRate: dom.sampleRateInput?.value,

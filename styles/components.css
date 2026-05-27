@@ -1384,11 +1384,11 @@ textarea {
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 28px 70px rgba(16, 18, 20, 0.24);
   backdrop-filter: blur(28px) saturate(1.2);
-  animation: sheet-up 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: mobile-sheet-up 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .mobile-environment-sheet.closing {
-  animation: sheet-down 170ms cubic-bezier(.4, 0, .2, 1) both;
+  animation: mobile-sheet-down 170ms cubic-bezier(.4, 0, .2, 1) both;
 }
 
 .mobile-sheet-handle {
@@ -1900,6 +1900,28 @@ textarea {
   to {
     opacity: 0;
     transform: translateY(16px) scale(0.985);
+  }
+}
+
+@keyframes mobile-sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mobile-sheet-down {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px);
   }
 }
 
