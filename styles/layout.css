@@ -1,3 +1,293 @@
+.auth-gate[hidden],
+.app-shell[hidden] {
+  display: none !important;
+}
+
+.auth-gate {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  overflow-y: auto;
+  padding: max(24px, env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+}
+
+.auth-shell {
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 18px;
+  min-height: calc(100dvh - 48px - env(safe-area-inset-bottom));
+  animation: auth-enter 240ms cubic-bezier(.2, .9, .25, 1) both;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding-inline: 2px;
+}
+
+.auth-brand .brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+
+.auth-brand h1 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.12;
+}
+
+.auth-card {
+  align-self: center;
+  margin-bottom: clamp(20px, 7vh, 58px);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: var(--radius);
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px);
+}
+
+.auth-card-head {
+  display: none !important;
+}
+
+.auth-card h2 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.12;
+}
+
+.auth-card p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.auth-role-grid {
+  margin-top: 0;
+}
+
+.auth-segmented {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  min-height: 54px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 4px;
+  background: rgba(246, 247, 248, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.auth-segment-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  box-shadow: 0 10px 24px rgba(16, 18, 20, 0.10);
+  transition: transform 220ms cubic-bezier(.2, .9, .25, 1);
+}
+
+.auth-gate[data-mode="internal"] .auth-segment-indicator {
+  transform: translateX(100%);
+}
+
+.auth-role-card {
+  position: relative;
+  z-index: 1;
+  min-height: 46px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  border: 0;
+  border-radius: 12px;
+  padding: 7px 10px;
+  color: var(--text);
+  background: transparent;
+  text-align: center;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.auth-role-card:hover,
+.auth-role-card:focus-visible {
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.auth-role-card span {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.auth-role-card strong {
+  font-size: 14px;
+  line-height: 1.18;
+}
+
+.auth-login-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.auth-login-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-login-form label > span {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.auth-login-form input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 13px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.92);
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.auth-login-form input:focus {
+  border-color: rgba(124, 92, 255, 0.58);
+  background: var(--surface-solid);
+  box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.14);
+}
+
+.auth-quick-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -2px;
+}
+
+.auth-quick-accounts[hidden] {
+  display: none !important;
+}
+
+.auth-account-chip {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 760;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.auth-account-chip:hover,
+.auth-account-chip:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(17, 19, 24, 0.22);
+  background: var(--surface-solid);
+  outline: none;
+}
+
+.auth-login-form[hidden],
+.auth-role-grid[hidden] {
+  display: none !important;
+}
+
+.auth-back-button {
+  display: none !important;
+}
+
+.auth-login-button {
+  min-height: 44px;
+  border-radius: 12px;
+}
+
+.auth-status-text {
+  min-height: 20px;
+  margin: 0 !important;
+  color: var(--text-soft);
+  font-size: 12px !important;
+}
+
+.auth-status-text[data-tone="error"] {
+  color: var(--red);
+}
+
+.auth-footnote {
+  margin-top: 10px !important;
+  color: var(--text-faint) !important;
+  font-size: 12px !important;
+  text-align: center;
+}
+
+@keyframes auth-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-gate {
+    padding: max(20px, env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
+  }
+
+  .auth-shell {
+    width: 100%;
+    gap: 16px;
+    min-height: calc(100dvh - 40px - env(safe-area-inset-bottom));
+  }
+
+  .auth-brand {
+    padding-inline: 2px;
+  }
+
+  .auth-brand .brand-mark {
+    width: 46px;
+    height: 46px;
+  }
+
+  .auth-brand h1 {
+    font-size: 22px;
+  }
+
+  .auth-card {
+    padding: 18px;
+    border-radius: 16px;
+    margin-bottom: clamp(18px, 6vh, 48px);
+  }
+
+  .auth-segmented {
+    min-height: 52px;
+  }
+}
+
+@media (max-height: 620px) {
+  .auth-card {
+    align-self: start;
+    margin-bottom: 0;
+  }
+}
+
 .app-shell {
   height: 100vh;
   height: 100dvh;
@@ -5,6 +295,11 @@
   grid-template-rows: 72px minmax(0, 1fr);
   padding: 14px;
   gap: 12px;
+  animation: app-enter 180ms cubic-bezier(.2, .9, .25, 1) both;
+}
+
+.app-shell.audience-debug .workbench {
+  animation: app-mode-in 170ms cubic-bezier(.2, .9, .25, 1) both;
 }
 
 .topbar {
@@ -17,10 +312,28 @@
 }
 
 .brand {
+  position: relative;
   height: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.brand-account-button {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.brand-account-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
 }
 
 .brand-mark {
@@ -58,6 +371,96 @@
   grid-template-columns: minmax(150px, 190px) auto auto minmax(180px, 1fr) minmax(140px, 0.7fr);
   gap: 8px;
   align-items: center;
+}
+
+.audience-status-strip {
+  min-width: 0;
+  display: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.audience-status-strip[hidden] {
+  display: none !important;
+}
+
+.audience-status-strip > div {
+  min-width: 0;
+  height: 42px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.audience-status-strip span {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.audience-status-strip strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell.audience-external .topbar {
+  grid-template-columns: 300px minmax(180px, 1fr) auto;
+}
+
+.app-shell.audience-external .top-status-strip {
+  display: none;
+}
+
+.app-shell.audience-external .audience-status-strip {
+  display: grid;
+}
+
+.app-shell.audience-external #openClientDrawerBtn,
+.app-shell.audience-external #openInspectorDrawerBtn,
+.app-shell.audience-external #debugLabBtn,
+.app-shell.audience-external #toggleAudioPanelBtn,
+.app-shell.audience-external #openProtocolBtn,
+.app-shell.audience-external .composer-status-row,
+.app-shell.audience-external .audio-source-panel,
+.app-shell.audience-external .protocol-workspace {
+  display: none !important;
+}
+
+.app-shell.audience-internal:not(.audience-debug) .top-status-strip {
+  grid-template-columns: minmax(190px, 260px) auto;
+}
+
+.app-shell.audience-internal:not(.audience-debug) #capabilityPill,
+.app-shell.audience-internal:not(.audience-debug) .identity-summary,
+.app-shell.audience-internal:not(.audience-debug) .audio-summary,
+.app-shell.audience-internal:not(.audience-debug) #openClientDrawerBtn,
+.app-shell.audience-internal:not(.audience-debug) #openInspectorDrawerBtn,
+.app-shell.audience-internal:not(.audience-debug) #toggleAudioPanelBtn,
+.app-shell.audience-internal:not(.audience-debug) #openProtocolBtn,
+.app-shell.audience-internal:not(.audience-debug) .composer-status-row,
+.app-shell.audience-internal:not(.audience-debug) .audio-source-panel,
+.app-shell.audience-internal:not(.audience-debug) .protocol-workspace {
+  display: none !important;
+}
+
+.app-shell.audience-external .text-dock,
+.app-shell.audience-internal:not(.audience-debug) .text-dock {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app-shell.audience-external .composer-actions,
+.app-shell.audience-internal:not(.audience-debug) .composer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(76px, auto));
 }
 
 .endpoint-hidden-fields {
@@ -316,6 +719,11 @@
     grid-template-columns: minmax(120px, 1fr) minmax(0, 1.1fr);
   }
 
+  .audience-status-strip {
+    grid-area: status;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .top-status-strip .top-action,
   .top-status-strip .capability-pill,
   .top-status-strip .audio-summary {
@@ -338,6 +746,19 @@
 
   .top-actions .connection-pill {
     display: none;
+  }
+
+  .app-shell.audience-external .top-actions .playback-toggle-button {
+    display: inline-flex;
+  }
+
+  .app-shell.audience-external .top-actions .logout-button {
+    display: none;
+  }
+
+  .app-shell.audience-external .topbar,
+  .app-shell.audience-internal:not(.audience-debug) .topbar {
+    grid-template-columns: 1fr auto;
   }
 
   .brand .eyebrow {
@@ -404,7 +825,167 @@
   }
 }
 
+@media (max-width: 640px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .app-shell.audience-internal.audience-debug .brand {
+    width: 46px;
+    min-width: 46px;
+    overflow: visible;
+  }
+
+  .app-shell.audience-internal.audience-debug .brand .eyebrow,
+  .app-shell.audience-internal.audience-debug .brand h1 {
+    display: none !important;
+  }
+
+  .app-shell.audience-external,
+  .app-shell.audience-internal:not(.audience-debug) {
+    gap: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 0;
+    overflow-x: hidden;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(246, 247, 249, 0.94)),
+      var(--bg);
+  }
+
+  .app-shell.audience-external .topbar,
+  .app-shell.audience-internal:not(.audience-debug) .topbar {
+    z-index: 60;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "brand actions";
+    min-height: calc(62px + env(safe-area-inset-top, 0px));
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+    border-bottom: 1px solid rgba(17, 19, 24, 0.08);
+    background: rgba(255, 255, 255, 0.66);
+    box-shadow: 0 12px 30px rgba(16, 18, 20, 0.08);
+    backdrop-filter: blur(24px) saturate(1.2);
+  }
+
+  .app-shell.audience-external .brand,
+  .app-shell.audience-internal:not(.audience-debug) .brand {
+    width: 50px;
+    height: 46px;
+  }
+
+  .app-shell.audience-external .brand .eyebrow,
+  .app-shell.audience-external .brand h1,
+  .app-shell.audience-internal:not(.audience-debug) .brand .eyebrow,
+  .app-shell.audience-internal:not(.audience-debug) .brand h1,
+  .app-shell.audience-external .top-status-strip,
+  .app-shell.audience-external .audience-status-strip,
+  .app-shell.audience-internal:not(.audience-debug) .top-status-strip,
+  .app-shell.audience-internal:not(.audience-debug) .audience-status-strip,
+  .app-shell.audience-external .chat-panel .panel-head,
+  .app-shell.audience-internal:not(.audience-debug) .chat-panel .panel-head {
+    display: none !important;
+  }
+
+  .app-shell.audience-external .top-actions,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions {
+    justify-content: end;
+    gap: 7px;
+  }
+
+  .app-shell.audience-external .top-actions #debugLabBtn,
+  .app-shell.audience-external .top-actions #openClientDrawerBtn,
+  .app-shell.audience-external .top-actions #openInspectorDrawerBtn,
+  .app-shell.audience-external .top-actions #logoutBtn,
+  .app-shell.audience-external .top-actions .connection-pill,
+  .app-shell.audience-external .mobile-environment-button,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions #debugLabBtn,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions #openClientDrawerBtn,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions #openInspectorDrawerBtn,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions #logoutBtn,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions .connection-pill {
+    display: none !important;
+  }
+
+  .app-shell.audience-internal:not(.audience-debug) .mobile-environment-button {
+    display: inline-flex;
+  }
+
+  .app-shell.audience-external .workbench,
+  .app-shell.audience-internal:not(.audience-debug) .workbench {
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .app-shell.audience-external .drawer-panel,
+  .app-shell.audience-internal:not(.audience-debug) .drawer-panel {
+    display: none !important;
+  }
+
+  .app-shell.audience-external .chat-panel,
+  .app-shell.audience-internal:not(.audience-debug) .chat-panel {
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .app-shell.audience-external .conversation-list,
+  .app-shell.audience-internal:not(.audience-debug) .conversation-list {
+    padding: 14px 10px 12px;
+    gap: 9px;
+  }
+
+  .app-shell.audience-external .input-dock,
+  .app-shell.audience-internal:not(.audience-debug) .input-dock {
+    border-top: 1px solid rgba(17, 19, 24, 0.08);
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 -16px 34px rgba(16, 18, 20, 0.1);
+    backdrop-filter: blur(24px) saturate(1.18);
+  }
+
+  .app-shell.audience-external .text-dock,
+  .app-shell.audience-internal:not(.audience-debug) .text-dock {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+    align-items: center;
+  }
+}
+
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes app-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-mode-in {
+  from {
+    opacity: 0.82;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-shell,
+  .app-shell,
+  .app-shell.audience-debug .workbench {
+    animation: none !important;
+  }
 }

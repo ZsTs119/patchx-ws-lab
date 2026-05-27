@@ -6,15 +6,19 @@ import { eventText, ProtocolStore } from "./core/protocol-store.js";
 import { ModuleHost } from "./core/module-host.js?v=20260526-ja-tts-split2";
 import { ScenarioRunner } from "./core/scenario-runner.js";
 import { WsClient } from "./core/ws-client.js";
+import { WsLabAuthApi } from "./core/ws-lab-auth-api.js";
 import { enhanceFilePickers } from "./ui/file-picker.js";
 import { activateTab, bindTabs } from "./ui/tabs.js";
 import { enhanceSelectControls, refreshSelectControl, refreshSelectControls } from "./ui/select-popover.js?v=20260525-polish2";
 
 const STORAGE_KEY = "patchx-ws-lab-v1";
+const MOBILE_ACCOUNT_HINT_KEY = "patchx-ws-lab-mobile-account-hint-v1";
 const CUSTOM_ENDPOINT_ID = "custom";
 const CUSTOM_TEMPLATE_PREFIX = "custom-protocol-";
 const CAPABILITY_KEYS = ["rest", "personalities", "logs", "rounds", "logDetail", "tts", "scenarioEvidence"];
 const REST_DEPENDENT_CAPABILITIES = ["personalities", "logs", "rounds", "logDetail", "tts", "scenarioEvidence"];
+const MOBILE_SHEET_TRANSITION_MS = 190;
+const ENDPOINT_DIALOG_TRANSITION_MS = 180;
 
 const builtInEndpointConfigs = [
   {
@@ -352,6 +356,7 @@ const dom = {};
 const store = new ProtocolStore();
 const wsClient = new WsClient(store);
 const api = new DevLabApi(() => dom.restBaseInput.value.trim());
+const authApi = new WsLabAuthApi(() => getAuthBaseUrl());
 const scenarioRunner = new ScenarioRunner({
   store,
   wsClient,
@@ -411,7 +416,14 @@ const state = {
   urlEndpointOverride: false,
   hasNewRounds: false,
   roundDetailCards: [],
-  pendingExpectedInputTexts: []
+  pendingExpectedInputTexts: [],
+  authProfile: null,
+  authStarted: false,
+  authMode: "external",
+  audienceDebugMode: false,
+  mobileAccountHintTimer: null,
+  endpointDialogReturnTarget: "",
+  endpointDialogCloseTimer: null
 };
 
 let audioStreamer;
@@ -420,15 +432,13 @@ let moduleHost;
 let capabilityProbeTimer = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  try {
-    init();
-  } catch (error) {
+  Promise.resolve(init()).catch((error) => {
     markBootError(error);
     throw error;
-  }
+  });
 });
 
-function init() {
+async function init() {
   bindDom();
   moduleHost = new ModuleHost({ store });
   audioStreamer = new AudioStreamer({
@@ -488,6 +498,13 @@ function init() {
     renderInspectorContext();
     renderOverview();
   };
+  markBootReady();
+  await initializeAuthGate();
+}
+
+function startAuthenticatedRuntime() {
+  if (state.authStarted) return;
+  state.authStarted = true;
   store.add({ direction: "system", type: "lab", label: "ready", payload: { message: "WS Lab ready" } });
   window.setInterval(() => {
     if (!state.logPaused && dom.logsView && !dom.logsView.hidden) {
@@ -497,9 +514,509 @@ function init() {
       refreshRounds({ silent: true });
     }
   }, 8000);
-  markBootReady();
   probeEnvironmentCapabilities({ silent: true, force: true })
     .finally(() => loadModules().then(() => maybeRunUrlAutomation()));
+}
+
+async function initializeAuthGate() {
+  setAuthStatus("正在检查登录状态...");
+  try {
+    const session = await authApi.me();
+    if (session.auth_enabled === false) {
+      if (isLocalRuntime()) {
+        enterAuthenticatedApp(createLocalInternalProfile());
+        return;
+      }
+      showAuthGate("当前站点未启用 WS Lab 登录服务，请检查网关或后端配置。");
+      return;
+    }
+    if (session.authenticated && session.user) {
+      enterAuthenticatedApp(session.user);
+      return;
+    }
+    showAuthGate();
+  } catch (error) {
+    if (isLocalRuntime()) {
+      enterAuthenticatedApp(createLocalInternalProfile());
+      return;
+    }
+    showAuthGate(`登录服务不可用：${error.message}`);
+  }
+}
+
+function showAuthGate(message = "") {
+  dom.appShell.hidden = true;
+  dom.authGate.hidden = false;
+  showAuthModeChoice({ reset: true });
+  if (message) setAuthStatus(message, "error");
+}
+
+function showAuthModeChoice(options = {}) {
+  const { reset = false } = options;
+  dom.authRoleGrid.hidden = false;
+  dom.authLoginForm.hidden = false;
+  dom.authGateTitle.textContent = "登录 WS Lab";
+  if (reset) {
+    dom.authUsernameInput.value = "";
+    dom.authPasswordInput.value = "";
+  }
+  setAuthStatus("");
+  selectAuthMode(state.authMode || "external");
+}
+
+function selectAuthMode(mode, options = {}) {
+  const { focus = false } = options;
+  const beforeHeight = dom.authCard?.getBoundingClientRect().height || 0;
+  const nextMode = mode === "internal" ? "internal" : "external";
+  state.authMode = nextMode;
+  const external = nextMode === "external";
+  dom.authGate.dataset.mode = nextMode;
+  dom.authRoleGrid.dataset.mode = nextMode;
+  dom.authLoginForm.hidden = false;
+  dom.authLoginForm.dataset.mode = nextMode;
+  dom.externalAuthModeBtn?.setAttribute("aria-selected", String(external));
+  dom.internalAuthModeBtn?.setAttribute("aria-selected", String(!external));
+  dom.authGateTitle.textContent = "登录 WS Lab";
+  dom.authGateDescription.textContent = external ? "外部账号进入绑定测试环境" : "内部账号进入团队测试台";
+  dom.authUsernameInput.placeholder = external ? "px_ext_zh / px_ext_en / px_ext_ja" : "账号";
+  dom.authQuickAccounts.hidden = !external;
+  dom.authFootnote.textContent = external ? "外部账号将进入绑定测试环境。" : "内部账号可进入完整调试台。";
+  if (!external && dom.authUsernameInput.value.trim().startsWith("px_ext_")) {
+    dom.authUsernameInput.value = "";
+  }
+  setAuthStatus("");
+  animateAuthCardResize(beforeHeight);
+  if (focus) {
+    window.setTimeout(() => dom.authUsernameInput.focus({ preventScroll: true }), 0);
+  }
+}
+
+function animateAuthCardResize(beforeHeight) {
+  const card = dom.authCard;
+  if (!card || !beforeHeight || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const afterHeight = card.getBoundingClientRect().height;
+  if (Math.abs(afterHeight - beforeHeight) < 1) return;
+  window.clearTimeout(card._resizeTimer);
+  card.style.height = `${beforeHeight}px`;
+  card.style.overflow = "hidden";
+  card.style.transition = "none";
+  card.offsetHeight;
+  card.style.transition = "height 220ms cubic-bezier(.2, .9, .25, 1)";
+  window.requestAnimationFrame(() => {
+    card.style.height = `${afterHeight}px`;
+  });
+  card._resizeTimer = window.setTimeout(() => {
+    card.style.height = "";
+    card.style.overflow = "";
+    card.style.transition = "";
+  }, 260);
+}
+
+async function handleAuthLogin(event) {
+  event.preventDefault();
+  const username = dom.authUsernameInput.value.trim();
+  const password = dom.authPasswordInput.value;
+  if (!username || !password) {
+    setAuthStatus("请输入账号和密码。", "error");
+    return;
+  }
+  dom.authLoginBtn.disabled = true;
+  dom.authLoginBtn.textContent = "登录中...";
+  setAuthStatus("正在登录...");
+  try {
+    const session = await authApi.login(username, password);
+    if (!session.authenticated || !session.user) {
+      throw new Error("登录响应缺少用户信息");
+    }
+    enterAuthenticatedApp(session.user);
+  } catch (error) {
+    setAuthStatus(error.message, "error");
+  } finally {
+    dom.authLoginBtn.disabled = false;
+    dom.authLoginBtn.textContent = "登录";
+  }
+}
+
+async function handleAuthLogout() {
+  resetRuntimeSession("auth_logout");
+  let logoutError = "";
+  try {
+    await authApi.logout();
+  } catch (error) {
+    logoutError = error.message;
+  }
+  state.authProfile = null;
+  closeAllMobileSheets();
+  showAuthGate();
+  if (logoutError) {
+    setAuthStatus(`已退出本地会话，服务端退出失败：${logoutError}`, "error");
+  }
+}
+
+function enterAuthenticatedApp(profile) {
+  const nextProfile = normalizeAuthProfile(profile);
+  const profileChanged = authProfileKey(state.authProfile) !== authProfileKey(nextProfile);
+  if (profileChanged || store.events.length || dom.conversationList?.children.length) {
+    resetRuntimeSession("auth_profile_change");
+  }
+  state.authProfile = nextProfile;
+  dom.authGate.hidden = true;
+  dom.appShell.hidden = false;
+  applyAuthProfile();
+  startAuthenticatedRuntime();
+  if (state.authProfile.autoConnect && !wsClient.isConnected) {
+    window.setTimeout(() => connectAndHello(), 250);
+  }
+}
+
+function normalizeAuthProfile(profile = {}) {
+  const audience = String(profile.audience || "internal").toLowerCase() === "external" ? "external" : "internal";
+  return {
+    username: String(profile.username || "local").trim(),
+    displayName: String(profile.display_name || profile.displayName || profile.username || "本地内部人员").trim(),
+    audience,
+    locale: String(profile.locale || "").toLowerCase(),
+    endpointId: String(profile.endpoint_id || profile.endpointId || "").trim(),
+    lockedEndpoint: audience === "external" || Boolean(profile.locked_endpoint || profile.lockedEndpoint),
+    autoConnect: audience === "external" || Boolean(profile.auto_connect || profile.autoConnect)
+  };
+}
+
+function createLocalInternalProfile() {
+  return {
+    username: "local_internal",
+    display_name: "本地内部人员",
+    audience: "internal",
+    auto_connect: false,
+    locked_endpoint: false
+  };
+}
+
+function authProfileKey(profile) {
+  if (!profile) return "";
+  const normalized = normalizeAuthProfile(profile);
+  return [
+    normalized.username,
+    normalized.audience,
+    normalized.endpointId,
+    normalized.lockedEndpoint ? "locked" : "free"
+  ].join("|");
+}
+
+function resetRuntimeSession(reason = "runtime_reset") {
+  try {
+    audioStreamer?.stop();
+  } catch {
+    // Best effort cleanup only; auth transitions should never be blocked by audio state.
+  }
+  downlinkAudioPlayer?.clear(reason, { keepUnlocked: true, keepStats: false });
+  if (wsClient.socket || wsClient.readyState !== WebSocket.CLOSED || wsClient.sessionId) {
+    wsClient.disconnect({ silent: true });
+  }
+  wsClient.sessionId = "";
+  state.activeAudioProfile = null;
+  state.activePlaybackProfile = null;
+  state.recentConversationKeys = [];
+  state.pendingExpectedInputTexts = [];
+  for (const record of state.activeTtsConversationRecords.values()) {
+    cancelTtsTypewriter(record);
+  }
+  state.activeTtsConversationSlots.clear();
+  state.activeTtsConversationRecords.clear();
+  state.ttsConversationSeq = 0;
+  state.logInsights = [];
+  state.chainItems = [];
+  state.roundSessions = [];
+  state.roundSummary = null;
+  state.roundLogFile = "";
+  state.rounds = [];
+  state.selectedRoundId = "";
+  state.selectedSessionId = "";
+  state.hasNewRounds = false;
+  state.roundDetailCards = [];
+  state.lastReport = null;
+  if (dom.conversationList) dom.conversationList.innerHTML = "";
+  if (dom.eventStream) dom.eventStream.innerHTML = "";
+  if (dom.logInsightList) {
+    dom.logInsightList.innerHTML = `<div class="round-empty">等待当前账号产生新的日志洞察。</div>`;
+  }
+  if (dom.logSummary) dom.logSummary.textContent = "等待当前账号日志";
+  if (dom.roundSummary) {
+    dom.roundSummary.innerHTML = [
+      renderRoundSummaryChip("轮次", 0, true),
+      renderRoundSummaryChip("状态", "等待当前会话", false, "wide")
+    ].join("");
+  }
+  if (dom.roundList) dom.roundList.innerHTML = `<div class="round-empty">等待当前账号产生新的轮次。</div>`;
+  if (dom.roundDetail) renderRoundDetail(null);
+  if (dom.roundSessionSelect) renderRoundSessionSelect([]);
+  store.clear();
+  updateConnectionState("idle");
+  renderMetrics();
+  renderInspectorContext();
+  renderChainTimeline();
+  renderOverview();
+}
+
+function applyAuthProfile() {
+  const profile = state.authProfile || createLocalInternalProfile();
+  const external = profile.audience === "external";
+  state.audienceDebugMode = false;
+  closeAllMobileSheets();
+  closeAllDrawers();
+  dom.appShell.classList.toggle("audience-external", external);
+  dom.appShell.classList.toggle("audience-internal", !external);
+  dom.appShell.classList.remove("audience-debug");
+  dom.debugLabBtn.hidden = external;
+  dom.debugLabBtn.textContent = "调试台";
+  dom.logoutBtn.hidden = isLocalRuntime() && profile.username === "local_internal";
+  dom.audienceStatusStrip.hidden = false;
+  if (profile.endpointId) {
+    applyProfileEndpoint(profile);
+  }
+  renderAudienceStatus();
+  autoResizeComposer();
+  scheduleMobileAccountHint();
+}
+
+function applyProfileEndpoint(profile = state.authProfile) {
+  if (!profile?.endpointId) return;
+  const config = getEndpointConfigById(profile.endpointId);
+  if (!config) {
+    store.add({ direction: "system", type: "auth", error: `登录配置的环境不存在：${profile.endpointId}` });
+    return;
+  }
+  applyEndpointConfig(config);
+  updateHelloPreview();
+  scheduleCapabilityProbe(0);
+}
+
+function enforceLockedAuthEndpoint() {
+  if (state.authProfile?.lockedEndpoint) {
+    applyProfileEndpoint(state.authProfile);
+  }
+}
+
+function renderAudienceStatus() {
+  const profile = state.authProfile;
+  const endpoint = getEndpointConfigByValues(dom.wsUrlInput.value, dom.restBaseInput.value);
+  dom.audienceEnvironmentLabel.textContent = endpoint?.label || "自定义环境";
+  dom.audienceUserLabel.textContent = profile?.displayName || profile?.username || "内部人员";
+}
+
+function isMobilePureAudienceLayout() {
+  return window.matchMedia?.("(max-width: 640px)").matches
+    && (dom.appShell.classList.contains("audience-external") || dom.appShell.classList.contains("audience-internal"))
+    && !dom.appShell.classList.contains("audience-debug");
+}
+
+function openMobileAccountSheet() {
+  if (!isMobilePureAudienceLayout()) return;
+  hideMobileAccountHint({ remember: true });
+  closeMobileEnvironmentSheet({ immediate: true });
+  renderMobileAccountSheet();
+  dom.mobileAccountSheet.classList.remove("closing");
+  dom.mobileAccountSheet.hidden = false;
+  dom.mobileSheetBackdrop.hidden = false;
+  dom.appShell.classList.add("mobile-sheet-open", "mobile-account-open");
+}
+
+function closeMobileAccountSheet(options = {}) {
+  if (!dom.mobileAccountSheet) return;
+  closeMobileSheet(dom.mobileAccountSheet, ["mobile-account-open"], options);
+}
+
+function renderMobileAccountSheet() {
+  if (!dom.mobileAccountSheet) return;
+  const profile = state.authProfile || createLocalInternalProfile();
+  const endpoint = getEndpointConfigByValues(dom.wsUrlInput.value, dom.restBaseInput.value);
+  const internal = profile.audience !== "external";
+  dom.mobileAccountName.textContent = profile.displayName || profile.username || "未登录";
+  dom.mobileAccountAudience.textContent = profile.audience === "external" ? "外部测试人员" : "内部人员";
+  dom.mobileAccountEndpoint.textContent = endpoint?.label || "自定义环境";
+  if (dom.mobileAccountEnvironmentBtn) dom.mobileAccountEnvironmentBtn.hidden = !internal;
+  if (dom.mobileAccountDebugBtn) dom.mobileAccountDebugBtn.hidden = !internal;
+}
+
+function scheduleMobileAccountHint() {
+  if (!dom.mobileAccountHint || !isMobilePureAudienceLayout()) return;
+  if (readLocalFlag(MOBILE_ACCOUNT_HINT_KEY)) return;
+  window.clearTimeout(state.mobileAccountHintTimer);
+  state.mobileAccountHintTimer = window.setTimeout(() => {
+    if (!dom.mobileAccountHint || !isMobilePureAudienceLayout()) return;
+    dom.mobileAccountHint.hidden = false;
+    dom.appShell.classList.add("mobile-account-hint-visible");
+    writeLocalFlag(MOBILE_ACCOUNT_HINT_KEY);
+    state.mobileAccountHintTimer = window.setTimeout(() => hideMobileAccountHint(), 2600);
+  }, 700);
+}
+
+function hideMobileAccountHint({ remember = false } = {}) {
+  window.clearTimeout(state.mobileAccountHintTimer);
+  state.mobileAccountHintTimer = null;
+  if (dom.mobileAccountHint) dom.mobileAccountHint.hidden = true;
+  dom.appShell?.classList.remove("mobile-account-hint-visible");
+  if (remember) writeLocalFlag(MOBILE_ACCOUNT_HINT_KEY);
+}
+
+function readLocalFlag(key) {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLocalFlag(key) {
+  try {
+    localStorage.setItem(key, "1");
+  } catch {
+    // Ignore storage failures; the hint is only a low-priority affordance.
+  }
+}
+
+function openMobileEnvironmentSheet() {
+  if (state.authProfile?.audience !== "internal") return;
+  closeMobileAccountSheet({ immediate: true });
+  renderMobileEnvironmentSheet();
+  dom.mobileEnvironmentSheet.classList.remove("closing");
+  dom.mobileEnvironmentSheet.hidden = false;
+  dom.mobileSheetBackdrop.hidden = false;
+  dom.appShell.classList.add("mobile-sheet-open");
+}
+
+function closeMobileEnvironmentSheet(options = {}) {
+  if (!dom.mobileEnvironmentSheet) return;
+  closeMobileSheet(dom.mobileEnvironmentSheet, [], options);
+}
+
+function closeMobileSheet(sheet, openClasses = [], options = {}) {
+  if (!sheet || sheet.hidden) {
+    if (openClasses.length) dom.appShell?.classList.remove(...openClasses);
+    hideMobileSheetBackdropIfIdle();
+    return;
+  }
+  window.clearTimeout(sheet._closeTimer);
+  const finish = () => {
+    sheet.hidden = true;
+    sheet.classList.remove("closing");
+    if (openClasses.length) dom.appShell?.classList.remove(...openClasses);
+    if (!options.keepBackdrop) hideMobileSheetBackdropIfIdle();
+  };
+  if (options.immediate || prefersReducedMotion()) {
+    finish();
+    return;
+  }
+  sheet.classList.add("closing");
+  sheet._closeTimer = window.setTimeout(finish, MOBILE_SHEET_TRANSITION_MS);
+}
+
+function hideMobileSheetBackdropIfIdle() {
+  if (!dom.mobileSheetBackdrop) return;
+  const accountOpen = dom.mobileAccountSheet && !dom.mobileAccountSheet.hidden;
+  const environmentOpen = dom.mobileEnvironmentSheet && !dom.mobileEnvironmentSheet.hidden;
+  dom.mobileSheetBackdrop.hidden = !(accountOpen || environmentOpen);
+  dom.appShell.classList.toggle("mobile-sheet-open", accountOpen || environmentOpen);
+}
+
+function closeAllMobileSheets() {
+  hideMobileAccountHint();
+  window.clearTimeout(dom.mobileAccountSheet?._closeTimer);
+  window.clearTimeout(dom.mobileEnvironmentSheet?._closeTimer);
+  if (dom.mobileAccountSheet) dom.mobileAccountSheet.hidden = true;
+  if (dom.mobileEnvironmentSheet) dom.mobileEnvironmentSheet.hidden = true;
+  if (dom.mobileSheetBackdrop) dom.mobileSheetBackdrop.hidden = true;
+  dom.mobileAccountSheet?.classList.remove("closing");
+  dom.mobileEnvironmentSheet?.classList.remove("closing");
+  dom.appShell?.classList.remove("mobile-sheet-open", "mobile-account-open");
+}
+
+function renderMobileEnvironmentSheet() {
+  if (!dom.mobileEndpointList) return;
+  const current = dom.endpointPresetSelect.value || getEndpointConfigByValues(dom.wsUrlInput.value, dom.restBaseInput.value)?.id || CUSTOM_ENDPOINT_ID;
+  dom.mobileEndpointList.innerHTML = "";
+  for (const config of getEndpointConfigs()) {
+    const resolved = resolveEndpointConfig(config);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mobile-endpoint-option";
+    button.dataset.endpointId = resolved.id;
+    button.setAttribute("aria-current", String(resolved.id === current));
+    button.title = endpointOptionTitle(resolved);
+    button.innerHTML = "<strong></strong><span></span>";
+    button.querySelector("strong").textContent = resolved.label;
+    button.querySelector("span").textContent = endpointSummary(resolved);
+    button.addEventListener("click", () => applyMobileEndpoint(resolved.id));
+    dom.mobileEndpointList.appendChild(button);
+  }
+}
+
+async function applyMobileEndpoint(endpointId) {
+  if (state.authProfile?.lockedEndpoint) return;
+  const config = getEndpointConfigById(endpointId);
+  if (!config) return;
+  const shouldReconnect = Boolean(wsClient.isConnected);
+  if (shouldReconnect) {
+    wsClient.disconnect();
+  }
+  applyEndpointConfig(config);
+  updateHelloPreview();
+  saveState();
+  scheduleCapabilityProbe(0);
+  closeMobileEnvironmentSheet();
+  if (shouldReconnect) {
+    window.setTimeout(() => connectAndHello(), 220);
+  }
+}
+
+function toggleInternalDebugMode() {
+  if (state.authProfile?.audience !== "internal") return;
+  state.audienceDebugMode = !state.audienceDebugMode;
+  dom.appShell.classList.toggle("audience-debug", state.audienceDebugMode);
+  dom.debugLabBtn.textContent = state.audienceDebugMode ? "返回纯净" : "调试台";
+  if (!state.audienceDebugMode) {
+    closeAllDrawers();
+    closeProtocolWorkspace();
+  }
+}
+
+function enterInternalDebugMode() {
+  if (state.authProfile?.audience !== "internal") return;
+  state.audienceDebugMode = true;
+  dom.appShell.classList.add("audience-debug");
+  dom.debugLabBtn.textContent = "返回纯净";
+}
+
+function setAuthStatus(message, tone = "") {
+  if (!dom.authStatusText) return;
+  dom.authStatusText.textContent = message;
+  if (tone) {
+    dom.authStatusText.dataset.tone = tone;
+  } else {
+    delete dom.authStatusText.dataset.tone;
+  }
+}
+
+function getAuthBaseUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const authOverride = params.get("auth") || params.get("authBase");
+  if (authOverride) {
+    return authOverride.replace(/\/$/, "");
+  }
+  if (isHostedStaticRuntime()) {
+    return `${window.location.origin}/api/ws-lab-auth`;
+  }
+  const host = (window.location.hostname || "127.0.0.1").toLowerCase();
+  if (isLocalRuntime()) {
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    return `${protocol}//${host}:8787/api/ws-lab-auth`;
+  }
+  try {
+    const rest = new URL(normalizeRestInput(dom.restBaseInput?.value || ""));
+    return `${rest.origin}/api/ws-lab-auth`;
+  } catch {
+    return "";
+  }
 }
 
 function bindDom() {
@@ -509,6 +1026,43 @@ function bindDom() {
 }
 
 function bindEvents() {
+  dom.externalAuthModeBtn?.addEventListener("click", () => selectAuthMode("external"));
+  dom.internalAuthModeBtn?.addEventListener("click", () => selectAuthMode("internal"));
+  dom.backToAuthModeBtn?.addEventListener("click", showAuthModeChoice);
+  dom.authQuickAccounts?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-auth-username]");
+    if (!chip) return;
+    dom.authUsernameInput.value = chip.dataset.authUsername || "";
+    dom.authPasswordInput.focus({ preventScroll: true });
+  });
+  dom.authLoginForm?.addEventListener("submit", handleAuthLogin);
+  dom.logoutBtn?.addEventListener("click", handleAuthLogout);
+  dom.debugLabBtn?.addEventListener("click", toggleInternalDebugMode);
+  dom.mobileAccountBtn?.addEventListener("click", openMobileAccountSheet);
+  dom.closeMobileAccountSheetBtn?.addEventListener("click", closeMobileAccountSheet);
+  dom.mobileAccountEnvironmentBtn?.addEventListener("click", () => {
+    if (state.authProfile?.audience !== "internal") return;
+    closeMobileAccountSheet({ immediate: true });
+    openMobileEnvironmentSheet();
+  });
+  dom.mobileAccountDebugBtn?.addEventListener("click", () => {
+    closeMobileAccountSheet({ immediate: true });
+    enterInternalDebugMode();
+  });
+  dom.mobileAccountLogoutBtn?.addEventListener("click", handleAuthLogout);
+  dom.mobileEnvironmentBtn?.addEventListener("click", openMobileEnvironmentSheet);
+  dom.mobileSheetBackdrop?.addEventListener("click", closeAllMobileSheets);
+  dom.closeMobileEnvironmentSheetBtn?.addEventListener("click", closeMobileEnvironmentSheet);
+  dom.mobileEnvironmentManageBtn?.addEventListener("click", () => {
+    closeMobileEnvironmentSheet({ immediate: true, keepBackdrop: true });
+    openEndpointDialog({ returnTarget: "mobile-environment" });
+  });
+  dom.mobileEnvironmentDebugBtn?.addEventListener("click", () => {
+    closeMobileEnvironmentSheet({ immediate: true });
+    enterInternalDebugMode();
+  });
+  dom.mobileEnvironmentLogoutBtn?.addEventListener("click", handleAuthLogout);
+
   dom.clientTabs.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-tab-target]");
     if (!tab) return;
@@ -578,14 +1132,18 @@ function bindEvents() {
 
   dom.endpointPresetSelect.addEventListener("change", applyEndpointPreset);
   dom.saveEndpointBtn.addEventListener("click", openEndpointDialog);
-  dom.closeEndpointDialogBtn.addEventListener("click", closeEndpointDialog);
-  dom.cancelEndpointDialogBtn.addEventListener("click", closeEndpointDialog);
+  dom.closeEndpointDialogBtn.addEventListener("click", () => closeEndpointDialog());
+  dom.cancelEndpointDialogBtn.addEventListener("click", () => closeEndpointDialog());
   dom.newEndpointBtn.addEventListener("click", startNewEndpointConfig);
   dom.applyEndpointDialogBtn.addEventListener("click", applyEndpointDialogDraft);
   dom.saveEndpointDialogBtn.addEventListener("click", saveEndpointDialogConfig);
   dom.deleteEndpointBtn.addEventListener("click", deleteEndpointDialogConfig);
   dom.endpointDialog.addEventListener("click", (event) => {
     if (event.target === dom.endpointDialog) closeEndpointDialog();
+  });
+  dom.endpointDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeEndpointDialog();
   });
 
   for (const id of [
@@ -666,6 +1224,8 @@ function bindEvents() {
   dom.sendTextBtn.addEventListener("click", sendText);
   dom.textMessageInput.addEventListener("keydown", handleTextComposerKeydown);
   dom.textMessageInput.addEventListener("input", autoResizeComposer);
+  dom.textMessageInput.addEventListener("focus", autoResizeComposer);
+  dom.textMessageInput.addEventListener("blur", autoResizeComposer);
   dom.formatCustomBtn.addEventListener("click", formatCustomJson);
   dom.sendCustomBtn.addEventListener("click", sendCustomJson);
   dom.templateSelect.addEventListener("change", updateCustomTemplate);
@@ -735,6 +1295,7 @@ function applyDisplayMode(mode = "pure") {
 }
 
 function openDrawer(name) {
+  if (state.authProfile?.audience === "external") return;
   if (state.uiMode === "lab" || (state.uiMode === "diagnosis" && name === "client")) {
     applyDisplayMode("pure");
   }
@@ -752,6 +1313,7 @@ function openDrawer(name) {
 }
 
 async function handleOpenInspectorDrawer() {
+  if (state.authProfile?.audience === "external") return;
   if (state.environmentCapability === "checking" || state.capabilities.rest.status === "unknown") {
     await probeEnvironmentCapabilities({ silent: true, force: true });
   }
@@ -784,6 +1346,7 @@ function closeDrawer(name) {
 
 function closeAllDrawers() {
   dom.appShell.classList.remove("drawer-client-open", "drawer-inspector-open");
+  closeAllMobileSheets();
   updateBackdrop();
 }
 
@@ -795,6 +1358,7 @@ function updateBackdrop() {
 }
 
 function openProtocolWorkspace() {
+  if (state.authProfile?.audience === "external") return;
   if (!dom.protocolDockPanel) return;
   dom.protocolDockPanel.hidden = false;
   dom.protocolDockPanel.classList.add("active");
@@ -817,6 +1381,7 @@ function closeProtocolWorkspace() {
 }
 
 function toggleAudioPanel() {
+  if (state.authProfile?.audience === "external") return;
   const show = dom.audioDockPanel.hidden;
   dom.audioDockPanel.hidden = !show;
   dom.audioDockPanel.classList.toggle("active", show);
@@ -832,8 +1397,12 @@ function closeAudioPanel() {
 function autoResizeComposer() {
   const input = dom.textMessageInput;
   if (!input) return;
-  input.style.height = "auto";
-  input.style.height = `${Math.min(Math.max(input.scrollHeight, 48), 112)}px`;
+  const mobilePure = isMobilePureAudienceLayout();
+  const minHeight = mobilePure ? 42 : 48;
+  const maxHeight = mobilePure ? 72 : 112;
+  input.style.height = `${minHeight}px`;
+  if (mobilePure && !input.value.trim()) return;
+  input.style.height = `${Math.min(Math.max(input.scrollHeight, minHeight), maxHeight)}px`;
 }
 
 function isMobileLayout() {
@@ -898,6 +1467,10 @@ function renderEndpointSelect(select, configs) {
 }
 
 function applyEndpointPreset() {
+  if (state.authProfile?.lockedEndpoint) {
+    applyProfileEndpoint(state.authProfile);
+    return;
+  }
   const select = dom.endpointPresetSelect;
   if (select.value === CUSTOM_ENDPOINT_ID) {
     refreshEndpointSelectControls();
@@ -926,6 +1499,7 @@ function applyEndpointConfig(config) {
   dom.restBaseInput.value = resolved.rest;
   dom.endpointPresetSelect.value = resolved.id;
   refreshEndpointSelectControls();
+  renderAudienceStatus();
 }
 
 function getEndpointConfigs() {
@@ -1047,7 +1621,12 @@ function announceEndpointSave(label) {
   store.add({ direction: "system", type: "lab", label: "endpoint", payload: { message: label } });
 }
 
-function openEndpointDialog() {
+function openEndpointDialog(options = {}) {
+  if (state.authProfile?.lockedEndpoint) return;
+  window.clearTimeout(state.endpointDialogCloseTimer);
+  state.endpointDialogReturnTarget = options.returnTarget || "";
+  dom.endpointDialog.classList.remove("closing");
+  dom.endpointDialog.dataset.returnTarget = state.endpointDialogReturnTarget;
   renderEndpointManagerList();
   selectEndpointForEditing(dom.endpointPresetSelect.value || CUSTOM_ENDPOINT_ID);
   setEndpointDialogStatus("");
@@ -1060,12 +1639,39 @@ function openEndpointDialog() {
   dom.endpointNameInput.select();
 }
 
-function closeEndpointDialog() {
-  if (dom.endpointDialog.open && typeof dom.endpointDialog.close === "function") {
-    dom.endpointDialog.close();
-  } else {
-    dom.endpointDialog.removeAttribute("open");
+function closeEndpointDialog(options = {}) {
+  const restoreMobileEnvironment = options.restoreMobileEnvironment !== false
+    && (state.endpointDialogReturnTarget || dom.endpointDialog.dataset.returnTarget) === "mobile-environment";
+  const finish = () => {
+    dom.endpointDialog.classList.remove("closing");
+    if (dom.endpointDialog.open && typeof dom.endpointDialog.close === "function") {
+      dom.endpointDialog.close();
+    } else {
+      dom.endpointDialog.removeAttribute("open");
+    }
+    state.endpointDialogReturnTarget = "";
+    dom.endpointDialog.dataset.returnTarget = "";
+    if (restoreMobileEnvironment && state.authProfile?.audience === "internal" && isMobilePureAudienceLayout()) {
+      window.setTimeout(() => openMobileEnvironmentSheet(), 0);
+    } else {
+      hideMobileSheetBackdropIfIdle();
+    }
+  };
+  window.clearTimeout(state.endpointDialogCloseTimer);
+  if (!dom.endpointDialog.open) {
+    finish();
+    return;
   }
+  if (options.immediate || prefersReducedMotion()) {
+    finish();
+    return;
+  }
+  dom.endpointDialog.classList.add("closing");
+  state.endpointDialogCloseTimer = window.setTimeout(finish, ENDPOINT_DIALOG_TRANSITION_MS);
+}
+
+function closeEndpointDialogAfterAction() {
+  closeEndpointDialog({ restoreMobileEnvironment: false });
 }
 
 function renderEndpointManagerList(selectedId = dom.endpointDialog.dataset.sourceId || dom.endpointPresetSelect.value || CUSTOM_ENDPOINT_ID) {
@@ -1158,7 +1764,7 @@ function applyEndpointDialogDraft() {
   updateHelloPreview();
   saveState();
   scheduleCapabilityProbe(0);
-  closeEndpointDialog();
+  closeEndpointDialogAfterAction();
   announceEndpointSave("已应用");
 }
 
@@ -1201,7 +1807,7 @@ function saveEndpointDialogConfig() {
   saveState();
   scheduleCapabilityProbe(0);
   renderEndpointManagerList(selected.id);
-  closeEndpointDialog();
+  closeEndpointDialogAfterAction();
   announceEndpointSave(editId ? "已修改" : "已保存");
 }
 
@@ -1224,7 +1830,7 @@ function deleteEndpointDialogConfig() {
   saveState();
   scheduleCapabilityProbe(0);
   renderEndpointManagerList(CUSTOM_ENDPOINT_ID);
-  closeEndpointDialog();
+  closeEndpointDialogAfterAction();
   announceEndpointSave("已删除");
 }
 
@@ -1777,6 +2383,7 @@ async function connectAndHello() {
 }
 
 async function openWsAndSendHello() {
+  enforceLockedAuthEndpoint();
   const identity = readIdentityFromInputs();
   const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
   const restBase = normalizeRestInput(dom.restBaseInput.value);
@@ -2618,6 +3225,7 @@ function toggleLogPause() {
 }
 
 async function runSmokeScenario() {
+  if (state.authProfile?.audience === "external") return;
   dom.runScenarioBtn.disabled = true;
   dom.scenarioReport.className = "scenario-report";
   const scenario = scenarios[dom.scenarioSelect.value] || scenarios["role-text-smoke"];
@@ -2949,8 +3557,15 @@ function updateMicButtonState(value = audioStreamer?.mode || "idle") {
     if (!button) continue;
     const idleLabel = button.dataset.idleLabel || "全双工";
     const activeLabel = button.dataset.activeLabel || "停止";
+    const label = active ? activeLabel : idleLabel;
+    const labelNode = button.querySelector(".mic-button-label");
     button.dataset.active = String(active);
-    button.textContent = active ? activeLabel : idleLabel;
+    if (labelNode) {
+      labelNode.textContent = label;
+    } else {
+      button.textContent = label;
+    }
+    button.setAttribute("aria-label", active ? "停止全双工" : "开始全双工");
     button.title = active ? "停止麦克风全双工推流" : "点击开启麦克风全双工推流";
   }
 }
@@ -4298,6 +4913,7 @@ function applyUrlParams() {
 async function maybeRunUrlAutomation() {
   const automation = state.urlAutomation;
   if (!automation) return;
+  if (state.authProfile?.audience === "external") return;
   if (automation.scenario && scenarios[automation.scenario]) {
     dom.scenarioSelect.value = automation.scenario;
   }

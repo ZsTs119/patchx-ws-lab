@@ -1,0 +1,43 @@
+[
+  {
+    "username": "px_ext_en",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "英语外部测试",
+    "audience": "external",
+    "locale": "en",
+    "endpoint_id": "sprite-en"
+  },
+  {
+    "username": "px_ext_ja",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "日语外部测试",
+    "audience": "external",
+    "locale": "ja",
+    "endpoint_id": "sprite-ja"
+  },
+  {
+    "username": "px_ext_zh",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "中文外部测试",
+    "audience": "external",
+    "locale": "zh",
+    "endpoint_id": "sprite-test"
+  },
+  {
+    "username": "zhangsan",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "张三",
+    "audience": "internal"
+  },
+  {
+    "username": "patch_x",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "PatchX 内部",
+    "audience": "internal"
+  }
+]

@@ -338,6 +338,10 @@
   background: var(--red);
 }
 
+.mobile-account-hint {
+  display: none;
+}
+
 .topbar button,
 .composer-actions button,
 .audio-source-panel button,
@@ -538,6 +542,10 @@
 .ghost-button:active,
 .icon-button:active {
   transform: translateY(0);
+}
+
+.mobile-environment-button {
+  display: none;
 }
 
 .button-row {
@@ -1019,9 +1027,18 @@ textarea {
   box-shadow: 0 28px 82px rgba(16, 18, 20, 0.32);
 }
 
+.payload-dialog[open] {
+  animation: dialog-in 180ms cubic-bezier(.2, .9, .25, 1) both;
+}
+
+.payload-dialog.closing {
+  animation: dialog-out 170ms cubic-bezier(.4, 0, .2, 1) both;
+}
+
 .payload-dialog::backdrop {
   background: rgba(12, 14, 18, 0.38);
   backdrop-filter: blur(10px);
+  animation: fade-in 160ms ease both;
 }
 
 .payload-dialog-head {
@@ -1341,6 +1358,161 @@ textarea {
   background: currentColor;
   opacity: 0.5;
   animation: type-caret 900ms steps(2, start) infinite;
+}
+
+.mobile-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  border: 0;
+  padding: 0;
+  background: rgba(17, 19, 24, 0.2);
+  backdrop-filter: blur(10px);
+  animation: fade-in 160ms ease both;
+}
+
+.mobile-environment-sheet {
+  position: fixed;
+  z-index: 120;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  max-height: min(620px, calc(100vh - 84px));
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 18px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 28px 70px rgba(16, 18, 20, 0.24);
+  backdrop-filter: blur(28px) saturate(1.2);
+  animation: sheet-up 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobile-environment-sheet.closing {
+  animation: sheet-down 170ms cubic-bezier(.4, 0, .2, 1) both;
+}
+
+.mobile-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 999px;
+  margin: 2px auto 8px;
+  background: rgba(17, 19, 24, 0.18);
+}
+
+.mobile-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px 10px;
+}
+
+.mobile-sheet-head h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.16;
+}
+
+.mobile-sheet-close {
+  min-height: 34px;
+}
+
+.mobile-endpoint-list {
+  max-height: min(44vh, 360px);
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding: 2px 2px 8px;
+}
+
+.mobile-endpoint-option {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.mobile-endpoint-option[aria-current="true"] {
+  color: #fff;
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: 0 14px 28px rgba(16, 18, 20, 0.16);
+}
+
+.mobile-endpoint-option strong,
+.mobile-endpoint-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-endpoint-option strong {
+  font-size: 14px;
+}
+
+.mobile-endpoint-option span {
+  color: inherit;
+  opacity: 0.68;
+  font-size: 12px;
+}
+
+.mobile-account-summary {
+  display: grid;
+  gap: 8px;
+  padding: 2px 2px 8px;
+}
+
+.mobile-account-summary div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.mobile-account-summary span,
+.mobile-account-summary strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-account-summary span {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.mobile-account-summary strong {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.mobile-sheet-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 10px 2px 2px;
+}
+
+.mobile-sheet-actions button {
+  min-width: 0;
+  min-height: 40px;
+}
+
+.mobile-sheet-actions #mobileEnvironmentLogoutBtn,
+.mobile-account-actions #mobileAccountLogoutBtn {
+  grid-column: 1 / -1;
+  color: var(--red);
 }
 
 .dock-tabs {
@@ -1720,6 +1892,39 @@ textarea {
   }
 }
 
+@keyframes sheet-down {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.985);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dialog-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+}
+
 @keyframes protocol-pop {
   from {
     opacity: 0;
@@ -1943,6 +2148,278 @@ textarea {
   box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.24);
   background: #101214;
   color: #edf2f7;
+}
+
+.app-shell.audience-external .composer-actions,
+.app-shell.audience-internal:not(.audience-debug) .composer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(76px, auto));
+}
+
+.app-shell.audience-external .composer-actions button,
+.app-shell.audience-internal:not(.audience-debug) .composer-actions button {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .app-shell.audience-external .top-actions .playback-toggle-button,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions .playback-toggle-button {
+    display: inline-flex;
+  }
+
+  .app-shell.audience-external .top-actions .logout-button {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell.audience-external .brand-mark,
+  .app-shell.audience-internal:not(.audience-debug) .brand-mark {
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    font-size: 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 8px 18px rgba(16, 18, 20, 0.18);
+  }
+
+  .app-shell.audience-external .brand-account-button,
+  .app-shell.audience-internal:not(.audience-debug) .brand-account-button {
+    width: 46px;
+    height: 46px;
+    border-radius: 15px;
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .app-shell.audience-external .brand-menu-indicator,
+  .app-shell.audience-internal:not(.audience-debug) .brand-menu-indicator {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    z-index: 2;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(17, 19, 24, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 5px 14px rgba(16, 18, 20, 0.18);
+  }
+
+  .app-shell.audience-external .brand-menu-indicator::before,
+  .app-shell.audience-internal:not(.audience-debug) .brand-menu-indicator::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    background: #111318;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4.2 6.1 8 9.9l3.8-3.8' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4.2 6.1 8 9.9l3.8-3.8' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  .app-shell.audience-external .brand-account-button:active,
+  .app-shell.audience-internal:not(.audience-debug) .brand-account-button:active {
+    transform: scale(0.96);
+  }
+
+  .app-shell.audience-external .brand-account-button:focus-visible,
+  .app-shell.audience-internal:not(.audience-debug) .brand-account-button:focus-visible {
+    box-shadow: var(--focus);
+  }
+
+  .app-shell.audience-external .mobile-account-hint,
+  .app-shell.audience-internal:not(.audience-debug) .mobile-account-hint {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 90;
+    display: block;
+    min-width: 88px;
+    padding: 7px 10px;
+    border: 1px solid rgba(17, 19, 24, 0.08);
+    border-radius: 999px;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 14px 34px rgba(16, 18, 20, 0.14);
+    backdrop-filter: blur(18px) saturate(1.2);
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px) scale(0.98);
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .app-shell.mobile-account-hint-visible .mobile-account-hint {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .app-shell.audience-external .top-actions .top-action,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions .top-action,
+  .app-shell.audience-external .quick-connect-button,
+  .app-shell.audience-internal:not(.audience-debug) .quick-connect-button {
+    min-height: 40px;
+    border-radius: 12px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .app-shell.audience-internal:not(.audience-debug) .mobile-environment-button {
+    display: inline-flex;
+  }
+
+  .app-shell.audience-external .top-actions .playback-toggle-button,
+  .app-shell.audience-internal:not(.audience-debug) .top-actions .playback-toggle-button {
+    min-width: 76px;
+    color: var(--text);
+    border-color: rgba(17, 19, 24, 0.1);
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .app-shell.audience-external .quick-connect-button,
+  .app-shell.audience-internal:not(.audience-debug) .quick-connect-button {
+    min-width: 54px;
+    box-shadow: 0 10px 24px rgba(16, 18, 20, 0.18);
+  }
+
+  .app-shell.audience-external .message,
+  .app-shell.audience-internal:not(.audience-debug) .message {
+    max-width: 84%;
+    border-radius: 14px;
+    padding: 9px 11px;
+    box-shadow: 0 6px 18px rgba(16, 18, 20, 0.06);
+  }
+
+  .app-shell.audience-external .message.client,
+  .app-shell.audience-internal:not(.audience-debug) .message.client {
+    border-color: #111318;
+    background: #111318;
+  }
+
+  .app-shell.audience-external .message.system,
+  .app-shell.audience-internal:not(.audience-debug) .message.system {
+    max-width: 78%;
+    border-color: rgba(17, 19, 24, 0.06);
+    background: rgba(230, 234, 240, 0.8);
+  }
+
+  .app-shell.audience-external .message p,
+  .app-shell.audience-internal:not(.audience-debug) .message p {
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .app-shell.audience-external .text-dock textarea,
+  .app-shell.audience-internal:not(.audience-debug) .text-dock textarea {
+    min-height: 42px;
+    max-height: 72px;
+    border-radius: 15px;
+    padding: 11px 12px;
+    background: rgba(255, 255, 255, 0.86);
+    font-size: 14px;
+    line-height: 1.35;
+    scrollbar-width: none;
+  }
+
+  .app-shell.audience-external .text-dock textarea::-webkit-scrollbar,
+  .app-shell.audience-internal:not(.audience-debug) .text-dock textarea::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
+  .app-shell.audience-external .text-dock textarea::placeholder,
+  .app-shell.audience-internal:not(.audience-debug) .text-dock textarea::placeholder {
+    color: transparent;
+  }
+
+  .app-shell.audience-external .composer-actions,
+  .app-shell.audience-internal:not(.audience-debug) .composer-actions {
+    display: grid;
+    grid-template-columns: 42px 58px;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .app-shell.audience-external .composer-actions button,
+  .app-shell.audience-internal:not(.audience-debug) .composer-actions button {
+    min-height: 42px;
+    border-radius: 14px;
+  }
+
+  .app-shell.audience-external .mic-button,
+  .app-shell.audience-internal:not(.audience-debug) .mic-button {
+    position: relative;
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+    gap: 0;
+    overflow: visible;
+    color: var(--text);
+    font-size: 0;
+    line-height: 0;
+  }
+
+  .app-shell.audience-external .mic-button-label,
+  .app-shell.audience-internal:not(.audience-debug) .mic-button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .app-shell.audience-external .mic-button-icon,
+  .app-shell.audience-internal:not(.audience-debug) .mic-button-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    margin: 0;
+    background: currentColor;
+    transform: translateY(-0.5px);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  .app-shell.audience-external .mic-button[data-active="true"],
+  .app-shell.audience-internal:not(.audience-debug) .mic-button[data-active="true"] {
+    color: #fff;
+    border-color: var(--ink);
+    background: var(--ink);
+  }
+
+  .app-shell.audience-external .mic-button[data-active="true"] .mic-button-icon,
+  .app-shell.audience-internal:not(.audience-debug) .mic-button[data-active="true"] .mic-button-icon {
+    width: 20px;
+    height: 20px;
+    transform: none;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M4 10h2v4H4v-4Zm4-4h2v12H8V6Zm4 3h2v6h-2V9Zm4-5h2v16h-2V4Zm4 7h2v2h-2v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='black' d='M4 10h2v4H4v-4Zm4-4h2v12H8V6Zm4 3h2v6h-2V9Zm4-5h2v16h-2V4Zm4 7h2v2h-2v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  .app-shell.audience-external .mic-button[data-active="true"]::after,
+  .app-shell.audience-internal:not(.audience-debug) .mic-button[data-active="true"]::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 1px solid rgba(16, 18, 20, 0.24);
+    border-radius: 18px;
+    animation: mic-pulse 1.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .app-shell.audience-external .send-button,
+  .app-shell.audience-internal:not(.audience-debug) .send-button {
+    min-width: 54px;
+    padding: 0 14px;
+    box-shadow: 0 10px 22px rgba(16, 18, 20, 0.18);
+  }
 }
 
 .inspector-context {
@@ -3047,9 +3524,37 @@ button.chain-item:focus-visible {
   }
 }
 
+@keyframes mic-pulse {
+  0% {
+    opacity: 0.64;
+    transform: scale(0.96);
+  }
+  55% {
+    opacity: 0.16;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .payload-dialog[open],
+  .payload-dialog.closing,
+  .payload-dialog::backdrop,
+  .mobile-environment-sheet,
+  .mobile-environment-sheet.closing {
+    animation: none !important;
+  }
+
   .message.streaming p::after {
     animation: none;
     opacity: 0.35;
+  }
+
+  .mic-button[data-active="true"]::after {
+    animation: none !important;
+    opacity: 0.28;
   }
 }

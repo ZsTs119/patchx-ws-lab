@@ -69,11 +69,16 @@ export class WsClient {
     });
   }
 
-  disconnect() {
+  disconnect(options = {}) {
     if (this.socket) {
+      if (options.silent) {
+        this.socket.onclose = null;
+        this.socket.onerror = null;
+      }
       this.socket.close(1000, "ws-lab disconnect");
       this.socket = null;
     }
+    this.sessionId = "";
     this.onStateChange("idle");
   }
 

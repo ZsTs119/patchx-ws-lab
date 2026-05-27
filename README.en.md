@@ -39,6 +39,8 @@ On Windows, double-click:
 dev/ws-lab/open-ws-lab.cmd
 ```
 
+This launcher starts both the local static server on `5177` and the local auth service on `8787`. If `server/users.json` does not exist, it copies `server/users.example.json` first.
+
 Manual static server:
 
 ```bash
@@ -86,15 +88,122 @@ server {
 }
 ```
 
-For an HTTPS deployment, prefer serving WS Lab, WebSocket, and Dev REST through the same gateway. This avoids most CORS and mixed-content issues.
+For an HTTPS deployment, prefer serving WS Lab, WebSocket, Dev REST, and WS Lab auth through the same gateway. This avoids most CORS and mixed-content issues.
 
-Public GitHub Pages URL:
+## Login Entry
+
+Shared or public deployments should enable the independent WS Lab login service. It only protects the test bench experience; it is not part of the production AI Server user system, and credentials are not stored in the frontend.
+
+Auth endpoints are served by the lightweight Node sidecar bundled in this directory:
+
+- `POST /api/ws-lab-auth/login`
+- `GET /api/ws-lab-auth/me`
+- `POST /api/ws-lab-auth/logout`
+
+The server sets an `HttpOnly + SameSite=Lax` cookie. The cookie is marked `Secure` on HTTPS requests and expires after 7 days by default.
+
+The sidecar has no npm dependencies. It reads accounts from a JSON file and stores only `scrypt` password hashes. Generate password hashes with:
+
+```bash
+cd /srv/patchx-ws-lab
+node server/hash-password.js --random PXLab@Ext-En
+node server/hash-password.js --random PXLab@Ext-Ja
+node server/hash-password.js --random PXLab@Internal
+```
+
+Copy the example file and paste the generated `password_hash` values into `server/users.json`:
+
+```bash
+cp server/users.example.json server/users.json
+```
+
+Example `server/users.json`. Do not commit plaintext passwords or real hashes to the repository. The `password` field is only for local maintainers to read; login verification uses `password_hash`:
+
+```json
+[
+  {
+    "username": "px_ext_en",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "English External Tester",
+    "audience": "external",
+    "locale": "en",
+    "endpoint_id": "sprite-en"
+  },
+  {
+    "username": "px_ext_ja",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "Japanese External Tester",
+    "audience": "external",
+    "locale": "ja",
+    "endpoint_id": "sprite-ja"
+  },
+  {
+    "username": "zhangsan",
+    "password": "replace_with_local_plaintext_password",
+    "password_hash": "scrypt$32768$8$1$replace_with_generated_salt$replace_with_generated_hash",
+    "display_name": "Zhang San",
+    "audience": "internal"
+  }
+]
+```
+
+Start the sidecar:
+
+For local development, when you only want to open the login page, use the dev launcher without setting a session secret manually:
+
+```bash
+cd dev/ws-lab
+cp server/users.example.json server/users.json
+node server/start-local-auth.js
+```
+
+For production or shared deployments, set an explicit random secret:
+
+```bash
+export WS_LAB_AUTH_SESSION_SECRET="$(openssl rand -hex 32)"
+export WS_LAB_AUTH_USERS_FILE="/srv/patchx-ws-lab/server/users.json"
+node server/ws-lab-auth-server.js
+```
+
+After pulling updates on a server, you can install or restart the sidecar with
+the bundled script:
+
+```bash
+cd /srv/patchx-ws-lab
+git pull --ff-only
+sudo bash server/deploy-sidecar.sh
+```
+
+The script creates `/etc/patchx-ws-lab-auth.env`, installs/restarts
+`patchx-ws-lab-auth.service`, and checks local `/api/ws-lab-auth/health`.
+
+It listens on `127.0.0.1:8787` by default. In production, run it under systemd and proxy the same-origin `/api/ws-lab-auth/*` path to it through Caddy or Nginx.
+
+Account conventions:
+
+- External English tester: `px_ext_en`, locked to the English Sprite environment and auto-connects after login.
+- External Japanese tester: `px_ext_ja`, locked to the Japanese Sprite environment and auto-connects after login.
+- Internal users: use employee pinyin or company account prefix, for example `zhangsan`. Internal users enter the clean conversation page first and can open the full debug console through `调试台`.
+
+When running locally on `127.0.0.1` / `localhost`, WS Lab requests `http://127.0.0.1:8787/api/ws-lab-auth` by default. If the sidecar is running, the login page is shown; if it is not running, WS Lab automatically enters local internal mode for lightweight development.
+
+Current team entry:
+
+```text
+https://ws-lab.patch-x.cn/
+```
+
+This entry should serve static files, `/api/ws-lab-auth/*` login endpoints, and `/env/<env>/...` environment proxies from the same origin.
+
+GitHub Pages static preview URL:
 
 ```text
 https://zsts119.github.io/patchx-ws-lab/
 ```
 
-GitHub Pages is served over HTTPS. On first visit, WS Lab selects `小精灵生产环境` by default. If you need to test local `ws://` / `http://` services, run WS Lab locally at `http://127.0.0.1:5177/`.
+GitHub Pages is a static HTTPS preview. It does not provide the same-origin login API or environment proxy. For team testing, use `https://ws-lab.patch-x.cn/`; if you need to test local `ws://` / `http://` services, run WS Lab locally at `http://127.0.0.1:5177/`.
 
 ## Target Environments
 
@@ -172,6 +281,12 @@ location /api/v1/dev/ws-lab {
     proxy_pass http://ai-server:8410/api/v1/dev/ws-lab;
     proxy_set_header Host $host;
 }
+
+location /api/ws-lab-auth {
+    proxy_pass http://127.0.0.1:8787/api/ws-lab-auth;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
 ```
 
 Adjust paths and rewrites to match the actual WebSocket route exposed by your AI Server.
@@ -191,13 +306,13 @@ If `/api/v1/dev/ws-lab` is not deployed, diagnosis, logs, rounds, and scenario e
 
 ## Main Workflow
 
-1. Select or create an environment.
-2. Select role `01` to `06`; open the client drawer if you need a random user or advanced Hello settings.
-3. Click `连接` to open WebSocket and send Hello.
-4. Type text in the bottom composer. Enter sends; Shift+Enter inserts a newline.
-5. Open `音频` for duplex microphone, generated speech streaming, WAV streaming, and silence diagnostics.
-6. Open `协议` for built-in or custom protocol templates.
-7. Open `诊断` for overview, rounds, logs, and scenarios. If the environment is protocol-only, WS Lab explains which evidence is unavailable.
+1. Log in. External testers use the language-specific account; internal users use employee accounts.
+2. Internal users may select or create an environment. External users are locked to the account-bound environment.
+3. Internal users may choose role `01` to `06`; open `调试台` and the client drawer for random users or advanced Hello settings.
+4. Click `连接` to open WebSocket and send Hello. External English/Japanese accounts auto-connect after login.
+5. Type text in the bottom composer. Enter sends; Shift+Enter inserts a newline.
+6. Click `全双工` for microphone input. Internal debug mode can also open advanced audio sources for generated speech streaming, WAV streaming, and silence diagnostics.
+7. Internal debug mode can open `协议` for templates and `诊断` for overview, rounds, logs, and scenarios.
 
 ## AI Automation
 
@@ -209,6 +324,9 @@ Stable URL parameters:
 - `autoConnect=1`: connect and send Hello after page load
 - `scenario`: scenario ID
 - `autorun=1`: run the selected scenario after page load
+- `auth` / `authBase`: optional auth service override, for example `http://127.0.0.1:8787/api/ws-lab-auth`
+
+If login is enabled, URL automation runs after a valid login. External tester accounts ignore scenario automation and keep the locked clean conversation flow; internal users keep the full automation surface.
 
 Machine-readable status:
 
@@ -296,3 +414,6 @@ Enable CORS on the target AI Server, or proxy Dev REST through the same origin a
 
 **Does full diagnosis require server-side Dev REST support?**
 Yes. Without `/api/v1/dev/ws-lab`, WS Lab automatically falls back to partial or protocol-only mode.
+
+**Why does the hosted page say the login service is unavailable?**
+Make sure `server/ws-lab-auth-server.js` is running, and make sure the gateway proxies `/api/ws-lab-auth/*` to `127.0.0.1:8787`.

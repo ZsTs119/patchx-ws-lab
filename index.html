@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PatchX WS Lab</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23101214'/%3E%3Ctext x='32' y='39' text-anchor='middle' font-size='22' font-family='Arial' font-weight='700' fill='white'%3EPX%3C/text%3E%3C/svg%3E">
-    <link rel="stylesheet" href="./styles/base.css?v=20260525-polish3">
-    <link rel="stylesheet" href="./styles/layout.css?v=20260525-polish3">
-    <link rel="stylesheet" href="./styles/components.css?v=20260526-tts-typewriter1">
+    <link rel="stylesheet" href="./styles/base.css?v=20260527-auth6">
+    <link rel="stylesheet" href="./styles/layout.css?v=20260527-auth6">
+    <link rel="stylesheet" href="./styles/components.css?v=20260527-auth6">
   </head>
   <body>
     <noscript>
@@ -21,10 +21,65 @@
       <span id="bootNoticeDetail">如果这个提示没有自动消失，请通过本地 HTTP 地址打开，而不是直接打开 HTML 文件。</span>
       <a href="http://127.0.0.1:5177/">打开 http://127.0.0.1:5177/</a>
     </div>
-    <div id="appShell" class="app-shell mode-pure" data-testid="ws-lab-shell">
+    <section id="authGate" class="auth-gate" aria-label="WS Lab 登录入口" data-testid="auth-gate" hidden>
+      <div class="auth-shell">
+        <div class="auth-brand">
+          <div class="brand-mark" aria-hidden="true">PX</div>
+          <div>
+            <p class="eyebrow">WebSocket 测试台</p>
+            <h1>PatchX WS Lab</h1>
+          </div>
+        </div>
+
+        <div id="authCard" class="auth-card">
+          <div class="auth-card-head" hidden>
+            <h2 id="authGateTitle">登录 WS Lab</h2>
+            <p id="authGateDescription">外部测试人员进入对应语言环境；内部人员进入团队测试台。</p>
+          </div>
+
+          <div class="auth-role-grid auth-segmented" id="authRoleGrid" role="tablist" aria-label="选择登录身份" data-testid="auth-role-grid">
+            <span class="auth-segment-indicator" aria-hidden="true"></span>
+            <button id="externalAuthModeBtn" class="auth-role-card auth-segment-button" type="button" role="tab" aria-selected="true" data-auth-mode="external" data-testid="auth-mode-external">
+              <strong>外部测试</strong>
+              <span>中文 · 英语 · 日语</span>
+            </button>
+            <button id="internalAuthModeBtn" class="auth-role-card auth-segment-button" type="button" role="tab" aria-selected="false" data-auth-mode="internal" data-testid="auth-mode-internal">
+              <strong>内部人员</strong>
+              <span>调试台</span>
+            </button>
+          </div>
+
+          <form id="authLoginForm" class="auth-login-form" data-testid="auth-login-form">
+            <button id="backToAuthModeBtn" class="ghost-button auth-back-button" type="button" data-testid="auth-back-button" hidden>返回选择</button>
+            <label>
+              <span>账号</span>
+              <input id="authUsernameInput" data-testid="auth-username-input" type="text" autocomplete="username" spellcheck="false" placeholder="例如 px_ext_en">
+            </label>
+            <div id="authQuickAccounts" class="auth-quick-accounts" aria-label="快捷账号">
+              <button class="auth-account-chip" type="button" data-auth-username="px_ext_zh">中文测试</button>
+              <button class="auth-account-chip" type="button" data-auth-username="px_ext_en">英语测试</button>
+              <button class="auth-account-chip" type="button" data-auth-username="px_ext_ja">日语测试</button>
+            </div>
+            <label>
+              <span>密码</span>
+              <input id="authPasswordInput" data-testid="auth-password-input" type="password" autocomplete="current-password" placeholder="请输入密码">
+            </label>
+            <button id="authLoginBtn" class="primary-button auth-login-button" type="submit" data-testid="auth-login-button">登录</button>
+            <p id="authStatusText" class="auth-status-text" data-testid="auth-status-text" role="status"></p>
+          </form>
+          <p id="authFootnote" class="auth-footnote">外部账号将进入绑定语言环境。</p>
+        </div>
+      </div>
+    </section>
+
+    <div id="appShell" class="app-shell mode-pure" data-testid="ws-lab-shell" hidden>
       <header class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">PX</div>
+          <button id="mobileAccountBtn" class="brand-account-button" type="button" aria-label="账号与退出" aria-haspopup="dialog" data-testid="mobile-account-button">
+            <span class="brand-mark" aria-hidden="true">PX</span>
+            <span class="brand-menu-indicator" aria-hidden="true"></span>
+          </button>
+          <span id="mobileAccountHint" class="mobile-account-hint" role="status" hidden>账号与退出</span>
           <div>
             <p class="eyebrow">WebSocket 测试仪表盘</p>
             <h1>PatchX WS Lab</h1>
@@ -58,7 +113,20 @@
           </div>
         </div>
 
+        <div id="audienceStatusStrip" class="audience-status-strip" data-testid="audience-status-strip" hidden>
+          <div>
+            <span>环境</span>
+            <strong id="audienceEnvironmentLabel">未选择</strong>
+          </div>
+          <div>
+            <span>账号</span>
+            <strong id="audienceUserLabel">未登录</strong>
+          </div>
+        </div>
+
         <div class="top-actions" aria-label="页面模式与抽屉">
+          <button id="debugLabBtn" class="secondary-button top-action" type="button" data-testid="debug-lab-button" hidden>调试台</button>
+          <button id="mobileEnvironmentBtn" class="secondary-button top-action mobile-environment-button" type="button" data-testid="mobile-environment-button">环境</button>
           <button id="openClientDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-client-drawer-button">客户端</button>
           <button id="openInspectorDrawerBtn" class="secondary-button top-action" type="button" data-testid="open-inspector-drawer-button">诊断</button>
           <button id="playbackToggleBtn" class="secondary-button top-action playback-toggle-button" type="button" data-state="locked" data-testid="playback-toggle-button">开启声音</button>
@@ -67,6 +135,7 @@
             <span id="connectionLabel">未连接</span>
           </div>
           <button id="quickConnectBtn" class="primary-button quick-connect-button" type="button" data-state="idle" data-testid="quick-connect-button">连接</button>
+          <button id="logoutBtn" class="ghost-button top-action logout-button" type="button" data-testid="logout-button">退出</button>
         </div>
         <div id="capabilityNotice" class="capability-notice" role="status" data-testid="capability-notice" hidden>
           <strong id="capabilityNoticeTitle">诊断不可用</strong>
@@ -75,6 +144,54 @@
           <button id="dismissCapabilityNoticeBtn" class="ghost-button mini-action" type="button" data-testid="capability-dismiss-button">继续测试</button>
         </div>
       </header>
+
+      <button id="mobileSheetBackdrop" class="mobile-sheet-backdrop" type="button" aria-label="关闭手机面板" data-testid="mobile-sheet-backdrop" hidden></button>
+      <section id="mobileAccountSheet" class="mobile-environment-sheet mobile-account-sheet" aria-label="手机账号设置" data-testid="mobile-account-sheet" hidden>
+        <div class="mobile-sheet-handle" aria-hidden="true"></div>
+        <div class="mobile-sheet-head">
+          <div>
+            <p class="eyebrow">账号</p>
+            <h2>账号与设置</h2>
+          </div>
+          <button id="closeMobileAccountSheetBtn" class="ghost-button mobile-sheet-close" type="button" data-testid="close-mobile-account-sheet-button">关闭</button>
+        </div>
+        <div class="mobile-account-summary" data-testid="mobile-account-summary">
+          <div>
+            <span>账号</span>
+            <strong id="mobileAccountName">未登录</strong>
+          </div>
+          <div>
+            <span>身份</span>
+            <strong id="mobileAccountAudience">内部人员</strong>
+          </div>
+          <div>
+            <span>环境</span>
+            <strong id="mobileAccountEndpoint">未选择</strong>
+          </div>
+        </div>
+        <div class="mobile-sheet-actions mobile-account-actions">
+          <button id="mobileAccountEnvironmentBtn" class="secondary-button" type="button" data-testid="mobile-account-environment-button">切换环境</button>
+          <button id="mobileAccountDebugBtn" class="secondary-button" type="button" data-testid="mobile-account-debug-button">进入调试台</button>
+          <button id="mobileAccountLogoutBtn" class="ghost-button" type="button" data-testid="mobile-account-logout-button">退出登录</button>
+        </div>
+      </section>
+
+      <section id="mobileEnvironmentSheet" class="mobile-environment-sheet" aria-label="手机环境设置" data-testid="mobile-environment-sheet" hidden>
+        <div class="mobile-sheet-handle" aria-hidden="true"></div>
+        <div class="mobile-sheet-head">
+          <div>
+            <p class="eyebrow">环境</p>
+            <h2>切换环境</h2>
+          </div>
+          <button id="closeMobileEnvironmentSheetBtn" class="ghost-button mobile-sheet-close" type="button" data-testid="close-mobile-environment-sheet-button">关闭</button>
+        </div>
+        <div id="mobileEndpointList" class="mobile-endpoint-list" data-testid="mobile-endpoint-list"></div>
+        <div class="mobile-sheet-actions">
+          <button id="mobileEnvironmentManageBtn" class="secondary-button" type="button" data-testid="mobile-environment-manage-button">管理环境</button>
+          <button id="mobileEnvironmentDebugBtn" class="secondary-button" type="button" data-testid="mobile-environment-debug-button">进入调试台</button>
+          <button id="mobileEnvironmentLogoutBtn" class="ghost-button" type="button" data-testid="mobile-environment-logout-button">退出登录</button>
+        </div>
+      </section>
 
       <button id="drawerBackdrop" class="drawer-backdrop" type="button" aria-label="关闭抽屉" data-testid="drawer-backdrop" hidden></button>
 
@@ -444,7 +561,10 @@
               <div class="composer-actions">
                 <button id="toggleAudioPanelBtn" class="secondary-button composer-icon-button" type="button" aria-expanded="false" data-testid="toggle-audio-panel-button">音频源</button>
                 <button id="openProtocolBtn" class="secondary-button composer-icon-button" type="button" data-testid="composer-protocol-button">协议</button>
-                <button id="startMicBtn" class="secondary-button mic-button" data-testid="start-mic-button">全双工</button>
+                <button id="startMicBtn" class="secondary-button mic-button" data-testid="start-mic-button">
+                  <span class="mic-button-icon" aria-hidden="true"></span>
+                  <span class="mic-button-label">全双工</span>
+                </button>
                 <button id="sendTextBtn" class="primary-button send-button" data-testid="send-text-button">发送</button>
               </div>
             </div>
@@ -840,6 +960,6 @@
       })();
     </script>
     <script src="./vendor/libopus.js?v=20260524-layered"></script>
-    <script type="module" src="./src/app.js?v=20260526-ja-tts-split2"></script>
+    <script type="module" src="./src/app.js?v=20260527-auth6"></script>
   </body>
 </html>
