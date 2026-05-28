@@ -11,6 +11,7 @@
     { "id": "audio-matrix", "type": "json", "path": "./modules/audio-matrix.json" },
     { "id": "asr-nostream", "type": "json", "path": "./modules/asr-nostream.json" },
     { "id": "tts-japanese-soft-split", "type": "json", "path": "./modules/tts-japanese-soft-split.json" },
+    { "id": "boot-greeting-onboarding", "type": "json", "path": "./modules/boot-greeting-onboarding.json" },
     { "id": "reconnect-error-protocol", "type": "json", "path": "./modules/reconnect-error-protocol.json" },
     { "id": "heartbeat-tools", "type": "js", "path": "./modules/heartbeat-tools.js" },
     { "id": "invalid-sample", "type": "json", "path": "./modules/invalid-sample.json" }

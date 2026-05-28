@@ -1,0 +1,95 @@
+{
+  "id": "boot-greeting-onboarding",
+  "name": "开机引导 Onboarding",
+  "area": "交互",
+  "version": "1.0.0",
+  "description": "验证新用户开机引导 onboarding 的游标续问、普通闲聊提交、手动触发跳过、非闲聊丢弃和周边路径干净续跑。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.boot-greeting-onboarding",
+      "label": "开机引导 · 新用户 Onboarding",
+      "description": "要求当前身份在冷启动 V2 中被识别为新用户 onboarding，且初始开机和第一轮普通闲聊提交后仍保持 should_continue_onboarding=true；最后一轮可继续或结束，用于覆盖提交、跳过、丢弃和继续提交边界。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 25000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|api_ok",
+            "boot_greeting|onboarding_candidate_attach",
+            "boot_greeting|onboarding_candidate_commit"
+          ],
+          "any_keywords": [
+            "onboarding=true",
+            "is_new_user_onboarding=true"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "send_text",
+          "text": "我比较喜欢安静地待着，也会慢慢熟起来。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 25000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|onboarding_prepare_ok",
+            "request_cursor=2"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "boot_greeting|onboarding_candidate_commit",
+          "min_matches": 2,
+          "timeout_ms": 90000
+        },
+        { "action": "send_json", "payload": { "type": "boot_greeting" } },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|ws_skip_onboarding_active"
+          ],
+          "timeout_ms": 8000
+        },
+        {
+          "action": "send_text",
+          "text": "帮我看看附近有没有适合坐一会儿的咖啡店。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 80000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|onboarding_candidate_discard"
+          ],
+          "any_keywords": [
+            "intent|route_around_tool_set",
+            "intent|v2_around",
+            "label=周边推荐",
+            "label=AROUND"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "send_text",
+          "text": "继续刚才的小问题，我更希望你多陪我聊天，也偶尔帮我记一点事情。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 80000 },
+        {
+          "action": "log_expect",
+          "keyword": "boot_greeting|onboarding_candidate_commit",
+          "min_matches": 3,
+          "timeout_ms": 15000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}
