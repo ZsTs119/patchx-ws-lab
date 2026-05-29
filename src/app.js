@@ -1150,7 +1150,7 @@ function bindEvents() {
   dom.closeClientDrawerBtn?.addEventListener("click", () => closeDrawer("client"));
   dom.openInspectorDrawerBtn?.addEventListener("click", handleOpenInspectorDrawer);
   dom.closeInspectorDrawerBtn?.addEventListener("click", () => closeDrawer("inspector"));
-  dom.drawerBackdrop?.addEventListener("click", closeAllDrawers);
+  dom.drawerBackdrop?.addEventListener("click", closeActiveOverlayFromBackdrop);
   dom.manageCapabilityEndpointBtn?.addEventListener("click", () => {
     hideCapabilityNotice();
     openEndpointDialog();
@@ -1413,9 +1413,21 @@ function closeAllDrawers() {
   updateBackdrop();
 }
 
+function closeActiveOverlayFromBackdrop() {
+  if (dom.appShell.classList.contains("protocol-open")) {
+    closeProtocolWorkspace();
+  }
+  if (dom.appShell.classList.contains("drawer-client-open") || dom.appShell.classList.contains("drawer-inspector-open")) {
+    closeAllDrawers();
+  }
+}
+
 function updateBackdrop() {
+  const protocolActive = window.matchMedia?.("(min-width: 641px)").matches
+    && dom.appShell.classList.contains("protocol-open");
   const active = dom.appShell.classList.contains("drawer-client-open")
-    || dom.appShell.classList.contains("drawer-inspector-open");
+    || dom.appShell.classList.contains("drawer-inspector-open")
+    || protocolActive;
   if (dom.drawerBackdrop) dom.drawerBackdrop.hidden = !active;
 }
 
