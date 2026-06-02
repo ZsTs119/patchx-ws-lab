@@ -29,7 +29,12 @@ export class DownlinkAudioPlayer {
     this.cancelledSources = new WeakSet();
     this.statsData = createStats();
     this.initialBufferMs = 180;
-    this.maxBufferMs = 900;
+    this.fullDuplexInitialBufferMs = 300;
+    this.resumeLeadMs = 80;
+    this.lowWatermarkMs = 120;
+    this.maxBufferMs = 1200;
+    this.micActive = false;
+    this.sentenceScheduledFrames = 0;
   }
 
   async unlock() {
@@ -69,12 +74,14 @@ export class DownlinkAudioPlayer {
     if (state === "start") {
       this.clear("tts_start", { keepUnlocked: true, keepStats: true });
       this.ttsActive = true;
+      this.sentenceScheduledFrames = 0;
       this.codec = normalizeCodec(payload.audio_codec || this.codec || this.profile.format);
       this.setStatus(this.unlocked && !this.muted ? "buffering" : this.statusForIdle());
       return;
     }
     if (state === "sentence_start") {
       this.ttsActive = true;
+      this.sentenceScheduledFrames = 0;
       if (payload.audio_codec) this.codec = normalizeCodec(payload.audio_codec);
       if (this.unlocked && !this.muted && !this.sources.size) {
         this.setStatus("buffering");
@@ -114,10 +121,15 @@ export class DownlinkAudioPlayer {
       if (this.context.state === "suspended") {
         await this.context.resume();
       }
+      const decodeStartMs = nowMs();
       const buffer = this.decodeToAudioBuffer(arrayBuffer);
+      const decodeMs = Math.max(0, nowMs() - decodeStartMs);
+      this.statsData.decodedFrames += 1;
+      this.statsData.decodeTotalMs += decodeMs;
+      this.statsData.decodeMaxMs = Math.max(this.statsData.decodeMaxMs, decodeMs);
       this.pendingBuffers.push(buffer);
       this.pendingMs += buffer.duration * 1000;
-      if (this.pendingMs >= this.initialBufferMs || !this.ttsActive) {
+      if (this.pendingMs >= this.effectiveInitialBufferMs() || !this.ttsActive) {
         this.flushPending();
       } else {
         this.setStatus("buffering");
@@ -145,6 +157,7 @@ export class DownlinkAudioPlayer {
     this.pendingMs = 0;
     this.nextPlayTime = 0;
     this.ttsActive = false;
+    this.sentenceScheduledFrames = 0;
     if (!options.keepStats) {
       this.statsData = createStats();
     }
@@ -160,6 +173,9 @@ export class DownlinkAudioPlayer {
     const queueDelayMs = this.context
       ? Math.max(0, Math.round((this.nextPlayTime - this.context.currentTime) * 1000 + this.pendingMs))
       : Math.round(this.pendingMs);
+    const decodeAvgMs = this.statsData.decodedFrames
+      ? Math.round(this.statsData.decodeTotalMs / this.statsData.decodedFrames)
+      : 0;
     return {
       ...this.statsData,
       status: this.status,
@@ -168,8 +184,43 @@ export class DownlinkAudioPlayer {
       codec: this.currentCodec(),
       sampleRate: this.profile.sampleRate,
       frameDuration: this.profile.frameDuration,
+      decodeAvgMs,
+      decodeMaxMs: Math.round(this.statsData.decodeMaxMs),
+      micActive: this.micActive,
+      initialBufferMs: this.effectiveInitialBufferMs(),
+      resumeLeadMs: this.resumeLeadMs,
+      lowWatermarkMs: this.lowWatermarkMs,
+      maxBufferMs: this.maxBufferMs,
       queueDelayMs
     };
+  }
+
+  setPlaybackTuning(options = {}) {
+    if (Object.prototype.hasOwnProperty.call(options, "micActive")) {
+      this.micActive = Boolean(options.micActive);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "initialBufferMs")) {
+      this.initialBufferMs = clampNumber(options.initialBufferMs, 60, 800, 180);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "fullDuplexInitialBufferMs")) {
+      this.fullDuplexInitialBufferMs = clampNumber(options.fullDuplexInitialBufferMs, 120, 1200, 300);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "resumeLeadMs")) {
+      this.resumeLeadMs = clampNumber(options.resumeLeadMs, 20, 300, 80);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "lowWatermarkMs")) {
+      this.lowWatermarkMs = clampNumber(options.lowWatermarkMs, 20, 600, 120);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "maxBufferMs")) {
+      this.maxBufferMs = clampNumber(options.maxBufferMs, 300, 5000, 1200);
+    }
+    this.onState?.(this.stats());
+  }
+
+  effectiveInitialBufferMs() {
+    return this.micActive
+      ? Math.max(this.initialBufferMs, this.fullDuplexInitialBufferMs)
+      : this.initialBufferMs;
   }
 
   refreshProfile() {
@@ -239,14 +290,26 @@ export class DownlinkAudioPlayer {
 
   scheduleBuffer(buffer) {
     const now = this.context.currentTime;
-    if (!this.nextPlayTime || this.nextPlayTime < now + 0.02) {
-      this.nextPlayTime = now + 0.06;
+    const queueLeadMs = this.nextPlayTime ? (this.nextPlayTime - now) * 1000 : 0;
+    this.statsData.lastQueueLeadMs = Math.round(queueLeadMs);
+    if (!this.nextPlayTime || queueLeadMs < this.lowWatermarkMs) {
+      this.statsData.lowWatermarkCount += 1;
+    }
+    if (!this.nextPlayTime || queueLeadMs < 20) {
+      this.statsData.underflowCount += 1;
+      this.statsData.lastUnderflowAt = new Date().toISOString();
+      if (this.sentenceScheduledFrames === 0) {
+        this.statsData.startupUnderflowCount += 1;
+      } else {
+        this.statsData.midSentenceUnderflowCount += 1;
+      }
+      this.nextPlayTime = now + this.resumeLeadMs / 1000;
     }
     if ((this.nextPlayTime - now) * 1000 > this.maxBufferMs) {
       const dropped = this.stopScheduledSources("queue_overflow");
       this.statsData.droppedFrames += Math.max(1, dropped);
       this.statsData.lastDropReason = "queue_overflow";
-      this.nextPlayTime = now + 0.06;
+      this.nextPlayTime = now + this.resumeLeadMs / 1000;
     }
 
     const source = this.context.createBufferSource();
@@ -264,6 +327,7 @@ export class DownlinkAudioPlayer {
     source.start(this.nextPlayTime);
     this.sources.add(source);
     this.statsData.scheduledFrames += 1;
+    this.sentenceScheduledFrames += 1;
     this.nextPlayTime += buffer.duration;
     this.setStatus("playing");
   }
@@ -354,10 +418,19 @@ function createStats() {
     scheduledFrames: 0,
     playedFrames: 0,
     droppedFrames: 0,
+    underflowCount: 0,
+    startupUnderflowCount: 0,
+    midSentenceUnderflowCount: 0,
+    lowWatermarkCount: 0,
+    decodedFrames: 0,
+    decodeTotalMs: 0,
+    decodeMaxMs: 0,
     decodeErrors: 0,
     lastError: "",
     lastDropReason: "",
-    lastClearReason: ""
+    lastClearReason: "",
+    lastUnderflowAt: "",
+    lastQueueLeadMs: 0
   };
 }
 
@@ -376,6 +449,16 @@ function normalizeProfile(profile) {
 function normalizeCodec(value) {
   const codec = String(value || "").toLowerCase();
   return codec === "pcm" ? "pcm" : "opus";
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+function nowMs() {
+  return window.performance?.now ? window.performance.now() : Date.now();
 }
 
 function createOpusDecoder(sampleRate) {

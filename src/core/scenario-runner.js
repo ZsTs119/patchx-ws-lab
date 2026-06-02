@@ -109,6 +109,31 @@ export class ScenarioRunner {
         } else if (step.action === "set_audio_profile") {
           this.tools.setAudioProfile?.(step.profile || step);
           this.markLastStep(steps, "pass", profileNote(step.profile || step));
+        } else if (step.action === "set_playback_profile") {
+          if (!this.tools.setPlaybackProfile) throw new Error("set_playback_profile tool is unavailable");
+          this.tools.setPlaybackProfile(step.profile || step);
+          this.markLastStep(steps, "pass", profileNote(step.profile || step));
+        } else if (step.action === "set_mic_constraints") {
+          if (!this.tools.setMicConstraints) throw new Error("set_mic_constraints tool is unavailable");
+          this.tools.setMicConstraints(step.constraints || step);
+          this.markLastStep(steps, "pass", micConstraintsNote(step.constraints || step));
+        } else if (step.action === "set_playback_tuning") {
+          if (!this.tools.setPlaybackTuning) throw new Error("set_playback_tuning tool is unavailable");
+          this.tools.setPlaybackTuning(step.tuning || step);
+          this.markLastStep(steps, "pass", playbackTuningNote(step.tuning || step));
+        } else if (step.action === "unlock_playback") {
+          if (!this.tools.unlockPlayback) throw new Error("unlock_playback tool is unavailable");
+          await this.tools.unlockPlayback();
+          this.markLastStep(steps, "pass");
+        } else if (step.action === "start_mic") {
+          if (!this.tools.startMic) throw new Error("start_mic tool is unavailable");
+          await this.tools.startMic();
+          this.markLastStep(steps, "pass");
+        } else if (step.action === "stop_mic") {
+          if (!this.tools.stopMic) throw new Error("stop_mic tool is unavailable");
+          this.tools.stopMic();
+          if (step.wait_ms) await sleep(step.wait_ms);
+          this.markLastStep(steps, "pass");
         } else if (step.action === "stream_silence") {
           const before = this.store.summary();
           await this.tools.streamSilence?.(step.duration_ms || 320);
@@ -189,6 +214,9 @@ export class ScenarioRunner {
         } else if (step.action === "expect_binary") {
           const event = await this.waitFor((candidate) => candidate.kind === "binary" && candidate.direction === "server", step.timeout_ms || 8000);
           this.markLastStep(steps, "pass", `${event.bytes || 0} bytes`);
+        } else if (step.action === "expect_playback_stats") {
+          const stats = await this.expectPlaybackStats(step);
+          this.markLastStep(steps, "pass", playbackStatsNote(stats));
         } else if (step.action === "log_summary") {
           if (!this.hasCapability("logs")) {
             degraded = true;
@@ -354,6 +382,24 @@ export class ScenarioRunner {
     } while (performance.now() < deadline);
     return null;
   }
+
+  async expectPlaybackStats(step = {}) {
+    if (!this.tools.getPlaybackStats) {
+      throw new Error("expect_playback_stats tool is unavailable");
+    }
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 120;
+    const deadline = performance.now() + timeoutMs;
+    let lastError = "";
+    let lastStats = null;
+    do {
+      lastStats = this.tools.getPlaybackStats() || {};
+      lastError = playbackStatsMismatch(lastStats, step);
+      if (!lastError) return lastStats;
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    throw new Error(lastError || "playback stats expectation failed");
+  }
 }
 
 function isUsefulServerResponse(event) {
@@ -438,6 +484,73 @@ function setPath(target, path, value) {
 
 function profileNote(profile = {}) {
   return [profile.format, profile.sample_rate || profile.sampleRate, profile.frame_duration || profile.frameDuration].filter(Boolean).join("/");
+}
+
+function micConstraintsNote(constraints = {}) {
+  return [
+    `aec=${constraints.echo_cancellation ?? constraints.echoCancellation ?? true}`,
+    `ns=${constraints.noise_suppression ?? constraints.noiseSuppression ?? false}`,
+    `agc=${constraints.auto_gain_control ?? constraints.autoGainControl ?? false}`
+  ].join(" ");
+}
+
+function playbackTuningNote(tuning = {}) {
+  return [
+    tuning.initial_buffer_ms ?? tuning.initialBufferMs,
+    tuning.full_duplex_initial_buffer_ms ?? tuning.fullDuplexInitialBufferMs,
+    tuning.resume_lead_ms ?? tuning.resumeLeadMs,
+    tuning.low_watermark_ms ?? tuning.lowWatermarkMs,
+    tuning.max_buffer_ms ?? tuning.maxBufferMs
+  ].filter((value) => value !== undefined && value !== "").join("/");
+}
+
+function playbackStatsNote(stats = {}) {
+  return `recv ${stats.receivedFrames || 0}, play ${stats.playedFrames || 0}, drop ${stats.droppedFrames || 0}, midUF ${stats.midSentenceUnderflowCount || 0}`;
+}
+
+function playbackStatsMismatch(stats = {}, step = {}) {
+  const expectedCodec = step.expected_codec || step.codec;
+  if (expectedCodec && stats.codec !== expectedCodec) {
+    return `playback codec mismatch: ${stats.codec || "-"} != ${expectedCodec}`;
+  }
+  const expectedStatus = step.expected_status || step.status;
+  if (expectedStatus && stats.status !== expectedStatus) {
+    return `playback status mismatch: ${stats.status || "-"} != ${expectedStatus}`;
+  }
+  if (step.mic_active !== undefined && Boolean(stats.micActive) !== Boolean(step.mic_active)) {
+    return `playback mic state mismatch: ${Boolean(stats.micActive)} != ${Boolean(step.mic_active)}`;
+  }
+  const minimums = [
+    ["receivedFrames", "min_received_frames"],
+    ["playedFrames", "min_played_frames"],
+    ["scheduledFrames", "min_scheduled_frames"]
+  ];
+  for (const [statKey, stepKey] of minimums) {
+    const expected = numericStepValue(step, stepKey);
+    if (expected !== null && Number(stats[statKey] || 0) < expected) {
+      return `${statKey} too low: ${stats[statKey] || 0} < ${expected}`;
+    }
+  }
+  const maximums = [
+    ["droppedFrames", "max_dropped_frames"],
+    ["underflowCount", "max_underflow"],
+    ["midSentenceUnderflowCount", "max_mid_sentence_underflow"],
+    ["decodeMaxMs", "max_decode_ms"],
+    ["queueDelayMs", "max_queue_ms"]
+  ];
+  for (const [statKey, stepKey] of maximums) {
+    const expected = numericStepValue(step, stepKey);
+    if (expected !== null && Number(stats[statKey] || 0) > expected) {
+      return `${statKey} too high: ${stats[statKey] || 0} > ${expected}`;
+    }
+  }
+  return "";
+}
+
+function numericStepValue(step, key) {
+  if (!Object.prototype.hasOwnProperty.call(step, key)) return null;
+  const value = Number(step[key]);
+  return Number.isFinite(value) ? value : null;
 }
 
 function sleep(ms) {

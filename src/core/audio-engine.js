@@ -1,11 +1,12 @@
 const OPUS_SAMPLE_RATES = new Set([8000, 12000, 16000, 24000, 48000]);
 
 export class AudioStreamer {
-  constructor({ wsClient, store, getProfile, getSessionId, onState }) {
+  constructor({ wsClient, store, getProfile, getSessionId, getMicConstraints, onState }) {
     this.wsClient = wsClient;
     this.store = store;
     this.getProfile = getProfile;
     this.getSessionId = getSessionId;
+    this.getMicConstraints = getMicConstraints;
     this.onState = onState;
     this.mode = "idle";
     this.paused = false;
@@ -165,12 +166,7 @@ export class AudioStreamer {
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
+        audio: normalizeMicConstraints(this.getMicConstraints?.())
       });
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       context = new AudioContextClass();
@@ -435,6 +431,15 @@ function concatInt16(a, b) {
   output.set(a, 0);
   output.set(b, a.length);
   return output;
+}
+
+function normalizeMicConstraints(raw = {}) {
+  return {
+    channelCount: 1,
+    echoCancellation: raw.echoCancellation !== false,
+    noiseSuppression: Boolean(raw.noiseSuppression),
+    autoGainControl: Boolean(raw.autoGainControl)
+  };
 }
 
 function sleep(ms) {

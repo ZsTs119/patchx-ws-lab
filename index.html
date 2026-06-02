@@ -299,6 +299,7 @@
                 <button class="preset-pill" type="button" data-audio-preset="opus:24000:40" data-testid="audio-preset-opus-24000-40">opus 24k 40ms</button>
                 <button class="preset-pill" type="button" data-audio-preset="pcm:16000:20" data-testid="audio-preset-pcm-16000-20">pcm 16k 20ms</button>
                 <button class="preset-pill" type="button" data-audio-preset="pcm:24000:20" data-testid="audio-preset-pcm-24000-20">pcm 24k 20ms</button>
+                <button class="preset-pill" type="button" data-audio-preset="full-duplex-tts" data-testid="audio-preset-full-duplex-tts">全双工 TTS 优先</button>
               </div>
 
               <div class="audio-card">
@@ -361,6 +362,27 @@
                       <option value="40">40ms</option>
                       <option value="60" selected>60ms</option>
                     </select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="audio-card">
+                <div class="section-title">
+                  <span>全双工麦克风处理</span>
+                  <span class="soft-label">开麦时生效</span>
+                </div>
+                <div class="field-grid three">
+                  <label class="switch-row">
+                    <input id="micEchoCancellationInput" data-testid="mic-echo-cancellation-input" type="checkbox" checked>
+                    <span>回声消除</span>
+                  </label>
+                  <label class="switch-row">
+                    <input id="micNoiseSuppressionInput" data-testid="mic-noise-suppression-input" type="checkbox">
+                    <span>噪声抑制</span>
+                  </label>
+                  <label class="switch-row">
+                    <input id="micAutoGainControlInput" data-testid="mic-auto-gain-control-input" type="checkbox">
+                    <span>自动增益</span>
                   </label>
                 </div>
               </div>
@@ -699,8 +721,8 @@
                 <strong id="metricBinary">0</strong>
               </div>
               <div class="metric">
-                <span>播放/丢弃</span>
-                <strong id="metricPlayback">0/0</strong>
+                <span>播放/丢/UF</span>
+                <strong id="metricPlayback">0/0/0</strong>
               </div>
             </div>
             <div id="evidenceCards" class="evidence-card-grid" data-testid="evidence-cards"></div>

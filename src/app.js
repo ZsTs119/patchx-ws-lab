@@ -20,6 +20,18 @@ const CAPABILITY_KEYS = ["rest", "personalities", "logs", "rounds", "logDetail",
 const REST_DEPENDENT_CAPABILITIES = ["personalities", "logs", "rounds", "logDetail", "tts", "scenarioEvidence"];
 const MOBILE_SHEET_TRANSITION_MS = 190;
 const ENDPOINT_DIALOG_TRANSITION_MS = 180;
+const FULL_DUPLEX_TTS_TUNING = {
+  initialBufferMs: 180,
+  fullDuplexInitialBufferMs: 320,
+  resumeLeadMs: 100,
+  lowWatermarkMs: 160,
+  maxBufferMs: 1400
+};
+const FULL_DUPLEX_MIC_CONSTRAINTS = {
+  echoCancellation: true,
+  noiseSuppression: false,
+  autoGainControl: false
+};
 
 const builtInEndpointConfigs = [
   {
@@ -373,6 +385,13 @@ const scenarioRunner = new ScenarioRunner({
     connectHello: () => openWsAndSendHello(),
     markHelloSent: () => markScenarioHelloSent(),
     setAudioProfile: (profile) => applyScenarioAudioProfile(profile),
+    setPlaybackProfile: (profile) => applyScenarioPlaybackProfile(profile),
+    setMicConstraints: (constraints) => applyScenarioMicConstraints(constraints),
+    setPlaybackTuning: (tuning) => applyScenarioPlaybackTuning(tuning),
+    startMic: () => startMicInput({ rethrow: true }),
+    stopMic: () => stopMicInput(),
+    unlockPlayback: () => unlockDownlinkPlayback(),
+    getPlaybackStats: () => downlinkAudioPlayer?.stats(),
     streamSilence: (durationMs) => streamScenarioSilence(durationMs),
     streamGeneratedTts: (text, options) => streamScenarioGeneratedTts(text, options)
   }
@@ -447,7 +466,9 @@ async function init() {
     store,
     getProfile: () => ensureActiveAudioProfile(),
     getSessionId: () => wsClient.sessionId,
+    getMicConstraints: () => getMicConstraintsFromInputs(),
     onState: (value) => {
+      syncDownlinkMicState(value);
       dom.audioStateLabel.textContent = displayAudioState(value);
       updateMicButtonState(value);
     }
@@ -769,6 +790,7 @@ function applyAuthProfile() {
   state.audienceDebugMode = false;
   if (external) {
     applyExternalDeviceIdentity();
+    applyExternalAudioDefaults();
   }
   closeAllMobileSheets();
   closeAllDrawers();
@@ -1223,6 +1245,9 @@ function bindEvents() {
     "playbackFormatInput",
     "playbackSampleRateInput",
     "playbackFrameDurationInput",
+    "micEchoCancellationInput",
+    "micNoiseSuppressionInput",
+    "micAutoGainControlInput",
     "sleepModeInput",
     "helloClientIdInput",
     "helloTokenToggle",
@@ -2296,7 +2321,7 @@ function updateClientPanelState(helloStatus = null) {
   dom.clientSummaryRole.dataset.tone = !identityStatus.valid ? "invalid" : identityStatus.mismatch ? "stale" : "";
   dom.clientSummaryDevice.textContent = shortText(identity.deviceId || "device -");
   dom.clientSummaryUser.textContent = shortText(identity.userId || "user -");
-  dom.clientSummaryAudio.textContent = formatAudioProfile(getDraftAudioProfileSafe());
+  dom.clientSummaryAudio.textContent = formatAudioProfilePair(getDraftAudioProfileSafe(), getDraftPlaybackProfileSafe());
   dom.clientSummaryAudio.dataset.tone = audioStatus.stale ? "stale" : "";
   dom.clientSummaryHello.textContent = helloStatus?.valid === false ? "Hello 异常" : "Hello 合法";
   dom.clientSummaryHello.dataset.tone = helloStatus?.valid === false ? "invalid" : helloStatus?.stale ? "stale" : "";
@@ -2312,7 +2337,7 @@ function updateClientPanelState(helloStatus = null) {
     dom.topIdentitySummary.title = `${identity.deviceId || ""} · ${identity.userId || ""}`;
   }
   if (dom.topAudioSummary) {
-    dom.topAudioSummary.textContent = formatAudioProfile(getDraftAudioProfileSafe());
+    dom.topAudioSummary.textContent = formatAudioProfilePair(getDraftAudioProfileSafe(), getDraftPlaybackProfileSafe());
     dom.topAudioSummary.dataset.tone = audioStatus.stale ? "stale" : "";
   }
   renderInspectorContext();
@@ -2352,15 +2377,23 @@ function getDeviceRoleStatus() {
 }
 
 function updateAudioProfileStatus() {
-  const draft = getDraftAudioProfileSafe();
-  const active = state.activeAudioProfile;
-  const stale = Boolean(wsClient.isConnected && active && !profilesEqual(draft, active));
-  dom.draftAudioProfileLabel.textContent = formatAudioProfile(draft);
-  dom.activeAudioProfileLabel.textContent = active ? formatAudioProfile(active) : "未连接";
+  const draftAudio = getDraftAudioProfileSafe();
+  const draftPlayback = getDraftPlaybackProfileSafe();
+  const activeAudio = state.activeAudioProfile;
+  const activePlayback = state.activePlaybackProfile;
+  const stale = Boolean(wsClient.isConnected && (
+    (activeAudio && !profilesEqual(draftAudio, activeAudio))
+      || (activePlayback && !profilesEqual(draftPlayback, activePlayback))
+  ));
+  const active = activeAudio || activePlayback;
+  dom.draftAudioProfileLabel.textContent = formatAudioProfilePair(draftAudio, draftPlayback);
+  dom.activeAudioProfileLabel.textContent = active
+    ? formatAudioProfilePair(activeAudio || draftAudio, activePlayback || draftPlayback)
+    : "未连接";
   dom.audioDraftStateLabel.textContent = stale ? "需要重连" : active ? "已生效" : "下一次握手生效";
   dom.audioReconnectNotice.textContent = stale
-    ? "音频配置已变更，请断开重连，让 Hello 与推流配置保持一致。"
-    : "音频配置将在下一次 Hello 握手中生效。";
+    ? "上下行音频配置已变更，请断开重连，让 Hello、推流和播放配置保持一致。"
+    : "上下行音频配置将在下一次 Hello 握手中生效。";
   dom.audioReconnectNotice.dataset.tone = stale ? "stale" : "ok";
   return { stale };
 }
@@ -2370,9 +2403,18 @@ function getDraftAudioProfileSafe() {
   return getDraftAudioProfile();
 }
 
+function getDraftPlaybackProfileSafe() {
+  if (!dom.playbackFormatInput) return { format: "opus", sampleRate: 24000, frameDuration: 60 };
+  return getDraftPlaybackProfile();
+}
+
 function formatAudioProfile(profile) {
   if (!profile) return "未连接";
   return `${profile.format}/${profile.sampleRate}/${profile.frameDuration}ms`;
+}
+
+function formatAudioProfilePair(audioProfile, playbackProfile) {
+  return `上 ${formatAudioProfile(audioProfile)} · 下 ${formatAudioProfile(playbackProfile)}`;
 }
 
 function setTabMarker(tab, marker) {
@@ -2434,6 +2476,10 @@ function resetHelloOptions() {
 }
 
 function applyAudioPreset(value) {
+  if (value === "full-duplex-tts") {
+    applyFullDuplexTTSPreset();
+    return;
+  }
   const [format, sampleRate, frameDuration] = String(value || "").split(":");
   if (!format || !sampleRate || !frameDuration) return;
   dom.audioFormatInput.value = format;
@@ -2445,6 +2491,90 @@ function applyAudioPreset(value) {
   refreshSelectControls(dom.audioClientPanel);
   updateHelloPreview();
   saveState();
+}
+
+function applyFullDuplexTTSPreset() {
+  applyFullDuplexTTSAudioDefaults({ recordEvent: true });
+}
+
+function applyExternalAudioDefaults() {
+  applyFullDuplexTTSAudioDefaults({ recordEvent: false });
+}
+
+function applyFullDuplexTTSAudioDefaults(options = {}) {
+  dom.audioFormatInput.value = "opus";
+  dom.sampleRateInput.value = "24000";
+  dom.frameDurationInput.value = "60";
+  dom.playbackFormatInput.value = "pcm";
+  dom.playbackSampleRateInput.value = "24000";
+  dom.playbackFrameDurationInput.value = "60";
+  dom.helloPlaybackToggle.checked = true;
+  applyMicConstraintsToInputs(FULL_DUPLEX_MIC_CONSTRAINTS);
+  applyPlaybackTuning(FULL_DUPLEX_TTS_TUNING);
+  refreshSelectControls(dom.audioClientPanel);
+  updateHelloPreview();
+  saveState();
+  if (options.recordEvent) {
+    store.add({
+      direction: "system",
+      type: "audio",
+      label: "已应用全双工 TTS 优先配置",
+      payload: {
+        audio: getDraftAudioProfileSafe(),
+        playback: getDraftPlaybackProfileSafe(),
+        mic: getMicConstraintsFromInputs(),
+        playback_tuning: FULL_DUPLEX_TTS_TUNING
+      }
+    });
+  }
+}
+
+function getMicConstraintsFromInputs() {
+  return {
+    echoCancellation: dom.micEchoCancellationInput?.checked !== false,
+    noiseSuppression: Boolean(dom.micNoiseSuppressionInput?.checked),
+    autoGainControl: Boolean(dom.micAutoGainControlInput?.checked)
+  };
+}
+
+function applyMicConstraintsToInputs(constraints = {}) {
+  const normalized = normalizeMicConstraintsOptions(constraints);
+  if (dom.micEchoCancellationInput) {
+    dom.micEchoCancellationInput.checked = normalized.echoCancellation;
+  }
+  if (dom.micNoiseSuppressionInput) {
+    dom.micNoiseSuppressionInput.checked = normalized.noiseSuppression;
+  }
+  if (dom.micAutoGainControlInput) {
+    dom.micAutoGainControlInput.checked = normalized.autoGainControl;
+  }
+}
+
+function applyPlaybackTuning(tuning = {}) {
+  downlinkAudioPlayer?.setPlaybackTuning(normalizePlaybackTuningOptions(tuning));
+}
+
+function normalizeMicConstraintsOptions(constraints = {}) {
+  return {
+    echoCancellation: constraints.echo_cancellation ?? constraints.echoCancellation ?? true,
+    noiseSuppression: Boolean(constraints.noise_suppression ?? constraints.noiseSuppression ?? false),
+    autoGainControl: Boolean(constraints.auto_gain_control ?? constraints.autoGainControl ?? false)
+  };
+}
+
+function normalizePlaybackTuningOptions(tuning = {}) {
+  return compactObject({
+    micActive: tuning.mic_active ?? tuning.micActive,
+    initialBufferMs: tuning.initial_buffer_ms ?? tuning.initialBufferMs,
+    fullDuplexInitialBufferMs: tuning.full_duplex_initial_buffer_ms ?? tuning.fullDuplexInitialBufferMs,
+    resumeLeadMs: tuning.resume_lead_ms ?? tuning.resumeLeadMs,
+    lowWatermarkMs: tuning.low_watermark_ms ?? tuning.lowWatermarkMs,
+    maxBufferMs: tuning.max_buffer_ms ?? tuning.maxBufferMs
+  });
+}
+
+function compactObject(value = {}) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
 
 async function connectAndHello() {
@@ -3469,6 +3599,37 @@ function applyScenarioAudioProfile(profile = {}) {
   saveState();
 }
 
+function applyScenarioPlaybackProfile(profile = {}) {
+  if (profile.format) dom.playbackFormatInput.value = profile.format;
+  if (profile.sample_rate || profile.sampleRate) dom.playbackSampleRateInput.value = String(profile.sample_rate || profile.sampleRate);
+  if (profile.frame_duration || profile.frameDuration) dom.playbackFrameDurationInput.value = String(profile.frame_duration || profile.frameDuration);
+  state.activePlaybackProfile = getDraftPlaybackProfile();
+  updateHelloPreview();
+  refreshSelectControls();
+  saveState();
+}
+
+function applyScenarioMicConstraints(constraints = {}) {
+  applyMicConstraintsToInputs(constraints);
+  saveState();
+  store.add({
+    direction: "system",
+    type: "audio",
+    label: "场景已设置麦克风约束",
+    payload: getMicConstraintsFromInputs()
+  });
+}
+
+function applyScenarioPlaybackTuning(tuning = {}) {
+  applyPlaybackTuning(tuning);
+  store.add({
+    direction: "system",
+    type: "audio_playback",
+    label: "场景已设置播放调优",
+    payload: downlinkAudioPlayer?.stats()
+  });
+}
+
 function markScenarioHelloSent() {
   state.activeAudioProfile = getDraftAudioProfile();
   state.activePlaybackProfile = getDraftPlaybackProfile();
@@ -3605,28 +3766,52 @@ async function generateAndStreamTts() {
   });
 }
 
-async function startMicInput() {
-  await runAudioAction(async () => {
+async function startMicInput(options = {}) {
+  const action = async () => {
     await audioStreamer.startMic();
     addAudioInputCue({
       source: "mic",
       label: "客户端 麦克风",
       text: "全双工麦克风输入中，等待 ASR 识别"
     });
-  });
+  };
+  if (options.rethrow) {
+    await action();
+    return;
+  }
+  await runAudioAction(action);
 }
 
 async function toggleMicInput() {
   if (audioStreamer?.mode === "mic") {
-    audioStreamer.stop();
-    updateMicButtonState("idle");
+    stopMicInput();
     return;
   }
   await startMicInput();
 }
 
+function stopMicInput() {
+  if (audioStreamer?.mode === "mic") {
+    audioStreamer.stop();
+  }
+  syncDownlinkMicState("idle");
+  updateMicButtonState("idle");
+}
+
+async function unlockDownlinkPlayback() {
+  await downlinkAudioPlayer?.unlock();
+}
+
+function syncDownlinkMicState(value = audioStreamer?.mode || "idle") {
+  const active = String(value || "").startsWith("mic");
+  const current = downlinkAudioPlayer?.stats()?.micActive;
+  if (current !== active) {
+    downlinkAudioPlayer?.setPlaybackTuning({ micActive: active });
+  }
+}
+
 function updateMicButtonState(value = audioStreamer?.mode || "idle") {
-  const active = value === "mic";
+  const active = String(value || "").startsWith("mic");
   for (const button of [dom.startMicBtn, dom.audioMicBtn]) {
     if (!button) continue;
     const idleLabel = button.dataset.idleLabel || "全双工";
@@ -4263,7 +4448,9 @@ function handleStoreUpdate(event) {
 function handleDownlinkAudioEvent(event) {
   if (!event || !downlinkAudioPlayer) return;
   if (event.direction === "server" && event.payload?.type === "hello") {
-    applyPlaybackProfileFromHello(event.payload);
+    if (applyPlaybackProfileFromHello(event.payload)) {
+      updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity?.textContent || "Hello 合法" });
+    }
     return;
   }
   if (event.direction === "server" && event.payload?.type === "tts") {
@@ -4309,22 +4496,40 @@ function updatePlaybackState(stats = downlinkAudioPlayer?.stats()) {
     dom.playbackToggleBtn.title = playbackButtonTitle(stats);
   }
   if (dom.metricPlayback) {
-    dom.metricPlayback.textContent = `${stats.playedFrames}/${stats.droppedFrames}`;
-    dom.metricPlayback.title = `收到 ${stats.receivedFrames} 帧/${stats.receivedBytes}B · 已播 ${stats.playedFrames} · 丢弃 ${stats.droppedFrames} · 队列 ${stats.queueDelayMs}ms`;
+    dom.metricPlayback.textContent = `${stats.playedFrames}/${stats.droppedFrames}/${stats.midSentenceUnderflowCount || 0}`;
+    dom.metricPlayback.title = playbackStatsTitle(stats);
   }
 }
 
 function displayPlaybackState(stats = downlinkAudioPlayer?.stats()) {
   if (!stats) return "下行未开启";
+  const underflow = stats.midSentenceUnderflowCount ? ` · 句中 UF ${stats.midSentenceUnderflowCount}` : "";
   const statusMap = {
     locked: "下行未开启",
     ready: "声音已开",
-    buffering: "下行缓冲中",
-    playing: `播放中 ${stats.queueDelayMs}ms`,
+    buffering: `下行缓冲中 ${stats.queueDelayMs}ms${underflow}`,
+    playing: `播放中 ${stats.queueDelayMs}ms${underflow}`,
     muted: "下行静音",
     error: "播放失败"
   };
   return statusMap[stats.status] || stats.status;
+}
+
+function playbackStatsTitle(stats = {}) {
+  return [
+    `收到 ${stats.receivedFrames || 0} 帧/${stats.receivedBytes || 0}B`,
+    `已播 ${stats.playedFrames || 0}`,
+    `丢弃 ${stats.droppedFrames || 0}`,
+    `队列 ${stats.queueDelayMs || 0}ms`,
+    `UF ${stats.underflowCount || 0}`,
+    `首帧 ${stats.startupUnderflowCount || 0}`,
+    `句中 ${stats.midSentenceUnderflowCount || 0}`,
+    `低水位 ${stats.lowWatermarkCount || 0}`,
+    `解码 avg/max ${stats.decodeAvgMs || 0}/${stats.decodeMaxMs || 0}ms`,
+    `麦克风 ${stats.micActive ? "开" : "关"}`,
+    `缓冲 ${stats.initialBufferMs || 0}/${stats.resumeLeadMs || 0}/${stats.maxBufferMs || 0}ms`,
+    `codec ${stats.codec || "-"}`
+  ].join(" · ");
 }
 
 function playbackButtonTitle(stats) {
@@ -4413,7 +4618,7 @@ function renderEvidenceCards(summary = store.summary()) {
     { label: "身份", value: `角色 ${state.selectedRole} · ${shortText(identity.deviceId)} · ${shortText(identity.userId)}` },
     { label: "连接", value: `${displayConnectionState(connectionState)} · ${wsClient.sessionId ? shortText(wsClient.sessionId) : "未握手"}` },
     { label: "日志", value: `${shortText(identity.traceId)} · ${dom.logKeywordInput.value.trim() || "全量筛选"}` },
-    { label: "音频", value: `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary} / 入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}` }
+    { label: "音频", value: `${formatAudioProfilePair(getDraftAudioProfileSafe(), getDraftPlaybackProfileSafe())} · 出 ${summary.outboundBinary} / 入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}/句中UF ${playback?.midSentenceUnderflowCount || 0}` }
   ];
   dom.evidenceCards.innerHTML = cards.map((card) => `
     <div class="evidence-card">
@@ -4436,7 +4641,7 @@ function renderInspectorContext() {
   dom.contextSession.textContent = wsClient.sessionId ? `${shortText(wsClient.sessionId)} · ${shortText(identity.traceId || "trace")}` : `${latest}`;
   const summary = store.summary();
   const playback = downlinkAudioPlayer?.stats();
-  dom.contextAudio.textContent = `${dom.audioFormatInput.value}/${dom.sampleRateInput.value}/${dom.frameDurationInput.value}ms · 出 ${summary.outboundBinary}/入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}`;
+  dom.contextAudio.textContent = `${formatAudioProfilePair(getDraftAudioProfileSafe(), getDraftPlaybackProfileSafe())} · 出 ${summary.outboundBinary}/入 ${summary.inboundBinary} · 播 ${playback?.playedFrames || 0}/丢 ${playback?.droppedFrames || 0}/句中UF ${playback?.midSentenceUnderflowCount || 0}`;
   renderOverview();
 }
 
@@ -5031,16 +5236,18 @@ function ensureActivePlaybackProfile() {
 }
 
 function applyPlaybackProfileFromHello(payload = {}) {
-  const params = payload.audio_params || payload.playback_audio_params;
-  if (!params) return;
+  const params = payload.playback_audio_params || payload.audio_params;
+  if (!params) return false;
   try {
     state.activePlaybackProfile = getProfileFromInputs({
       format: params.format || state.activePlaybackProfile?.format || dom.playbackFormatInput.value,
       sampleRate: params.sample_rate || state.activePlaybackProfile?.sampleRate || dom.playbackSampleRateInput.value,
       frameDuration: params.frame_duration || state.activePlaybackProfile?.frameDuration || dom.playbackFrameDurationInput.value
     });
+    return true;
   } catch {
     // Keep the locally negotiated playback profile if the server sends a partial or legacy hello.
+    return false;
   }
 }
 
@@ -5070,6 +5277,9 @@ function saveState() {
       playbackFormat: dom.playbackFormatInput?.value,
       playbackSampleRate: dom.playbackSampleRateInput?.value,
       playbackFrameDuration: dom.playbackFrameDurationInput?.value,
+      micEchoCancellation: dom.micEchoCancellationInput?.checked !== false,
+      micNoiseSuppression: Boolean(dom.micNoiseSuppressionInput?.checked),
+      micAutoGainControl: Boolean(dom.micAutoGainControlInput?.checked),
       sleepMode: Boolean(dom.sleepModeInput?.checked)
     },
     helloOptions: {
@@ -5133,6 +5343,9 @@ function restoreState() {
       dom.playbackFormatInput.value = saved.audio.playbackFormat || saved.audio.format || "opus";
       dom.playbackSampleRateInput.value = saved.audio.playbackSampleRate || saved.audio.sampleRate || "24000";
       dom.playbackFrameDurationInput.value = saved.audio.playbackFrameDuration || saved.audio.frameDuration || "60";
+      dom.micEchoCancellationInput.checked = saved.audio.micEchoCancellation !== false;
+      dom.micNoiseSuppressionInput.checked = Boolean(saved.audio.micNoiseSuppression);
+      dom.micAutoGainControlInput.checked = Boolean(saved.audio.micAutoGainControl);
       dom.sleepModeInput.checked = Boolean(saved.audio.sleepMode);
     }
     if (saved.helloOptions) {
@@ -5762,7 +5975,15 @@ function displayStepName(name) {
     disconnect: "断开连接",
     wait: "等待",
     set_audio_profile: "设置音频配置",
+    set_playback_profile: "设置下行播放",
+    set_mic_constraints: "设置麦克风处理",
+    set_playback_tuning: "设置播放调优",
+    unlock_playback: "开启声音",
+    start_mic: "开始全双工",
+    stop_mic: "停止全双工",
+    expect_playback_stats: "检查播放指标",
     stream_silence: "静音推流",
+    stream_tts: "生成语音推流",
     send_hello: "发送 Hello",
     send_raw: "发送原始消息"
   })[name] || name;

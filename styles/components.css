@@ -775,6 +775,10 @@ textarea {
   margin-top: 10px;
 }
 
+.audio-preset-grid [data-audio-preset="full-duplex-tts"] {
+  grid-column: 1 / -1;
+}
+
 .preset-pill {
   min-height: 32px;
   border: 1px solid var(--line);

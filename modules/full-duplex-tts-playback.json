@@ -1,0 +1,61 @@
+{
+  "id": "full-duplex-tts-playback",
+  "name": "全双工 TTS 播放稳定性",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证开麦全双工时，下行 TTS 播放使用独立 playback_audio_params、关闭自动增益类变量，并采集句中 underflow/丢帧/解码耗时。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.full-duplex-tts-playback",
+      "label": "全双工 TTS 播放稳定性",
+      "description": "设置上行 opus 与下行 pcm，开启浏览器声音和麦克风后触发一轮服务端 TTS，验收下行音频帧与播放侧指标。",
+      "stability": "manual-audio",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "set_mic_constraints", "constraints": { "echo_cancellation": true, "noise_suppression": false, "auto_gain_control": false } },
+        {
+          "action": "set_playback_tuning",
+          "tuning": {
+            "initial_buffer_ms": 180,
+            "full_duplex_initial_buffer_ms": 320,
+            "resume_lead_ms": 100,
+            "low_watermark_ms": 160,
+            "max_buffer_ms": 1400
+          }
+        },
+        { "action": "connect_hello", "wait_session": true, "timeout_ms": 12000 },
+        { "action": "unlock_playback" },
+        { "action": "start_mic" },
+        { "action": "wait", "ms": 300 },
+        {
+          "action": "send_text",
+          "text": "日本語で短く返事してください。全双工テストなので、自然な速度で一文だけ話してください。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "expect_playback_stats",
+          "timeout_ms": 12000,
+          "min_received_frames": 1,
+          "max_dropped_frames": 5,
+          "max_mid_sentence_underflow": 2,
+          "max_decode_ms": 120,
+          "mic_active": true
+        },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 50000 },
+        {
+          "action": "expect_playback_stats",
+          "timeout_ms": 2000,
+          "min_received_frames": 1,
+          "max_mid_sentence_underflow": 2
+        },
+        { "action": "stop_mic", "wait_ms": 200 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}
