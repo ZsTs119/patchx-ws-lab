@@ -1,0 +1,152 @@
+{
+  "id": "intent-tool-observation",
+  "name": "意图工具结果注入",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证 Intent V2 将 tool_instruction、旧 instruction 兜底和默认投机 instruction 作为当前轮临时 tool result 注入，而不是改写用户消息。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.intent-tool-observation-default",
+      "label": "意图 · 默认闲聊 Tool Result",
+      "description": "普通闲聊触发默认投机 instruction 时，应以 intent_context_lookup 的 tool result 注入，并完成一轮 TTS。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "你好，做一次意图工具结果注入验收，请用一句话回复。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 45000 },
+        { "action": "expect_binary", "timeout_ms": 25000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|speculative_default_instruction_injected",
+            "intent|tool_observation_injected",
+            "\"kind\":\"default_speculative_instruction\""
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-tool-observation-weather",
+      "label": "意图 · tool_instruction 结果",
+      "description": "天气类输入命中 Intent V2 非闲聊分支时，服务端返回的 tool_instruction 应作为 tool result 参与当前轮模型请求。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "今天北京天气怎么样？请用一句话告诉我。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        { "action": "expect_binary", "timeout_ms": 25000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 70000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|tool_observation_injected",
+            "\"kind\":\"tool_instruction\""
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-tool-observation-food-composed",
+      "label": "意图 · 美食组合 Tool Result",
+      "description": "美食推荐命中服务端 tool_instruction 后，仍应保留本地美食 API 结果，并以 composed tool result 注入模型。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "location.latitude": 30.123456,
+            "location.longitude": 120.123456,
+            "location.address": "杭州市西湖区",
+            "location.ad_code": "330106"
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "附近有什么适合现在吃的美食？推荐两家就好。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 25000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|v2_food_api_ok",
+            "intent|tool_observation_injected",
+            "\"kind\":\"tool_instruction_composed_context\"",
+            "intent_api+food_api"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-tool-observation-memory-empty",
+      "label": "意图 · 用户记忆空结果 Tool Result",
+      "description": "用户记忆意图在向量记忆未命中或当前无法确认记忆时，仍应注入固定记忆说明，避免模型编造历史记忆。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "你还记得我之前最喜欢的餐厅叫什么吗？如果没有相关记忆，请直接说不知道。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 25000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|v2_memory_observation"
+          ],
+          "any_keywords": [
+            "memory_search_empty",
+            "memory_search_unconfirmed"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|tool_observation_injected"
+          ],
+          "any_keywords": [
+            "未找到与本次查询相关的用户记忆",
+            "用户记忆搜索本轮没有返回可靠结果"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

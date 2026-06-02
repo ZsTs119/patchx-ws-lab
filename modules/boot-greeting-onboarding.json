@@ -2,8 +2,8 @@
   "id": "boot-greeting-onboarding",
   "name": "开机引导 Onboarding",
   "area": "交互",
-  "version": "1.0.0",
-  "description": "验证新用户开机引导 onboarding 的游标续问、普通闲聊提交、手动触发跳过、非闲聊丢弃和周边路径干净续跑。",
+  "version": "1.1.0",
+  "description": "验证新用户开机引导 onboarding 的游标续问、普通闲聊提交、手动触发跳过、非闲聊丢弃、周边路径干净续跑，以及开机引导 L0 tool observation 协议。",
   "actions": [],
   "scenarios": [
     {
@@ -87,6 +87,36 @@
           "keyword": "boot_greeting|onboarding_candidate_commit",
           "min_matches": 3,
           "timeout_ms": 15000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.boot-greeting-tool-observation-l0",
+      "label": "开机引导 · L0 Tool Observation",
+      "description": "验证开机引导默认走 L0 快模型，开机引导拼接内容以 assistant(tool_calls)+tool(result) 注入，命中预执行结果后不再下发真实工具，并在 DashScope/Qwen 兼容请求体中设置 tool_choice=none。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 25000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|tool_observation_injected",
+            "kind=boot_greeting_onboarding",
+            "fast_llm_on_demand.get",
+            "use_fast=true",
+            "fast_pool_prompt_swap",
+            "tool_gate.skip: pre-executed tool observation present",
+            "role=tool source=boot_greeting_observation",
+            "\"tool_choice\":\"none\""
+          ],
+          "timeout_ms": 90000
         },
         { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
       ]
