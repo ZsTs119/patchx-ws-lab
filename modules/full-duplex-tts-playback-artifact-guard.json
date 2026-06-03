@@ -1,15 +1,15 @@
 {
-  "id": "full-duplex-tts-playback",
-  "name": "全双工 TTS 播放稳定性",
+  "id": "full-duplex-tts-playback-artifact-guard",
+  "name": "全双工 TTS 播放破音防护",
   "area": "音频",
   "version": "1.0.0",
-  "description": "验证开麦全双工时，下行 TTS 播放使用独立 playback_audio_params、关闭自动增益类变量，并采集句中 underflow/丢帧/解码耗时。",
+  "description": "验证全双工下行播放启用 headroom、limiter、边界平滑和 late-frame 防护后，句中 underflow、削波、边界跳变和旧帧串入是否受控。",
   "actions": [],
   "scenarios": [
     {
-      "id": "module.full-duplex-tts-playback",
-      "label": "全双工 TTS 播放稳定性",
-      "description": "设置上行 opus 与下行 pcm，开启浏览器声音和麦克风后触发一轮服务端 TTS，验收下行音频帧与播放侧指标。",
+      "id": "module.full-duplex-tts-playback-artifact-guard",
+      "label": "全双工 TTS 播放破音防护",
+      "description": "使用外部默认全双工播放策略触发一轮日语 TTS，验收下行播放质量指标。",
       "stability": "manual-audio",
       "suite": "feature",
       "auto_connect": false,
@@ -40,25 +40,34 @@
         { "action": "wait", "ms": 300 },
         {
           "action": "send_text",
-          "text": "日本語で短く返事してください。全双工テストなので、自然な速度で一文だけ話してください。"
+          "text": "日本語で自然に一文だけ返してください。星雲の奥でまだ眠っている仲間の話を、やさしい声で短く伝えてください。"
         },
         { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
         { "action": "expect_binary", "timeout_ms": 20000 },
         {
-          "action": "expect_playback_stats",
+          "action": "expect_playback_quality",
           "timeout_ms": 12000,
           "min_received_frames": 1,
+          "max_mid_sentence_underflow": 1,
           "max_dropped_frames": 5,
-          "max_mid_sentence_underflow": 2,
           "max_decode_ms": 120,
+          "max_clipping_ratio": 0.01,
+          "max_boundary_jump": 0.7,
+          "max_late_frames": 0,
+          "max_profile_mismatch": 0,
+          "expect_artifact_guard": true,
           "mic_active": true
         },
         { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 50000 },
         {
-          "action": "expect_playback_stats",
+          "action": "expect_playback_quality",
           "timeout_ms": 2000,
           "min_received_frames": 1,
-          "max_mid_sentence_underflow": 2
+          "max_mid_sentence_underflow": 1,
+          "max_clipping_ratio": 0.01,
+          "max_late_frames": 0,
+          "max_profile_mismatch": 0,
+          "expect_artifact_guard": true
         },
         { "action": "stop_mic", "wait_ms": 200 },
         { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }

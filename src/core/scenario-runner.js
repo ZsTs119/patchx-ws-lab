@@ -217,6 +217,9 @@ export class ScenarioRunner {
         } else if (step.action === "expect_playback_stats") {
           const stats = await this.expectPlaybackStats(step);
           this.markLastStep(steps, "pass", playbackStatsNote(stats));
+        } else if (step.action === "expect_playback_quality") {
+          const stats = await this.expectPlaybackQuality(step);
+          this.markLastStep(steps, "pass", playbackQualityNote(stats));
         } else if (step.action === "log_summary") {
           if (!this.hasCapability("logs")) {
             degraded = true;
@@ -400,6 +403,24 @@ export class ScenarioRunner {
     } while (performance.now() < deadline);
     throw new Error(lastError || "playback stats expectation failed");
   }
+
+  async expectPlaybackQuality(step = {}) {
+    if (!this.tools.getPlaybackStats) {
+      throw new Error("expect_playback_quality tool is unavailable");
+    }
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 120;
+    const deadline = performance.now() + timeoutMs;
+    let lastError = "";
+    let lastStats = null;
+    do {
+      lastStats = this.tools.getPlaybackStats() || {};
+      lastError = playbackStatsMismatch(lastStats, step) || playbackQualityMismatch(lastStats, step);
+      if (!lastError) return lastStats;
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    throw new Error(lastError || "playback quality expectation failed");
+  }
 }
 
 function isUsefulServerResponse(event) {
@@ -500,12 +521,28 @@ function playbackTuningNote(tuning = {}) {
     tuning.full_duplex_initial_buffer_ms ?? tuning.fullDuplexInitialBufferMs,
     tuning.resume_lead_ms ?? tuning.resumeLeadMs,
     tuning.low_watermark_ms ?? tuning.lowWatermarkMs,
-    tuning.max_buffer_ms ?? tuning.maxBufferMs
+    tuning.max_buffer_ms ?? tuning.maxBufferMs,
+    tuning.output_gain ?? tuning.outputGain,
+    tuning.artifact_guard_enabled ?? tuning.artifactGuardEnabled
   ].filter((value) => value !== undefined && value !== "").join("/");
 }
 
 function playbackStatsNote(stats = {}) {
   return `recv ${stats.receivedFrames || 0}, play ${stats.playedFrames || 0}, drop ${stats.droppedFrames || 0}, midUF ${stats.midSentenceUnderflowCount || 0}`;
+}
+
+function playbackQualityNote(stats = {}) {
+  const platform = stats.platform || {};
+  return [
+    `UF ${stats.midSentenceUnderflowCount || 0}`,
+    `clip ${formatPercent(stats.clippingSampleRatio || 0)}`,
+    `jump ${stats.boundaryJumpCount || 0}/${stats.boundaryJumpMax || 0}`,
+    `late ${stats.lateFrameDroppedCount || 0}`,
+    `profile ${stats.profileMismatchCount || 0}`,
+    `guard ${stats.artifactGuardEnabled ? "on" : "off"}`,
+    stats.codec || "-",
+    platform.isWeChat ? "WeChat" : platform.isMobile ? "Mobile" : "Desktop"
+  ].filter(Boolean).join(", ");
 }
 
 function playbackStatsMismatch(stats = {}, step = {}) {
@@ -547,10 +584,37 @@ function playbackStatsMismatch(stats = {}, step = {}) {
   return "";
 }
 
+function playbackQualityMismatch(stats = {}, step = {}) {
+  const expectations = [
+    ["clippingSampleRatio", "max_clipping_ratio"],
+    ["boundaryJumpMax", "max_boundary_jump"],
+    ["lateFrameDroppedCount", "max_late_frames"],
+    ["profileMismatchCount", "max_profile_mismatch"],
+    ["clippingFrameCount", "max_clipping_frames"],
+    ["boundaryJumpCount", "max_boundary_jumps"]
+  ];
+  for (const [statKey, stepKey] of expectations) {
+    const expected = numericStepValue(step, stepKey);
+    if (expected !== null && Number(stats[statKey] || 0) > expected) {
+      return `${statKey} too high: ${stats[statKey] || 0} > ${expected}`;
+    }
+  }
+  if (step.expect_artifact_guard !== undefined && Boolean(stats.artifactGuardEnabled) !== Boolean(step.expect_artifact_guard)) {
+    return `artifact guard mismatch: ${Boolean(stats.artifactGuardEnabled)} != ${Boolean(step.expect_artifact_guard)}`;
+  }
+  return "";
+}
+
 function numericStepValue(step, key) {
   if (!Object.prototype.hasOwnProperty.call(step, key)) return null;
   const value = Number(step[key]);
   return Number.isFinite(value) ? value : null;
+}
+
+function formatPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "0.00%";
+  return `${(num * 100).toFixed(2)}%`;
 }
 
 function sleep(ms) {

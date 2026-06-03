@@ -14,6 +14,7 @@ import { enhanceSelectControls, refreshSelectControl, refreshSelectControls } fr
 const STORAGE_KEY = "patchx-ws-lab-v1";
 const EXTERNAL_DEVICE_IDENTITY_KEY = "patchx-ws-lab-external-device-identity-v1";
 const MOBILE_ACCOUNT_HINT_KEY = "patchx-ws-lab-mobile-account-hint-v1";
+const PLAYBACK_ARTIFACT_GUARD_KEY = "patchx-ws-lab-playback-artifact-guard-v1";
 const CUSTOM_ENDPOINT_ID = "custom";
 const CUSTOM_TEMPLATE_PREFIX = "custom-protocol-";
 const CAPABILITY_KEYS = ["rest", "personalities", "logs", "rounds", "logDetail", "tts", "scenarioEvidence"];
@@ -22,10 +23,17 @@ const MOBILE_SHEET_TRANSITION_MS = 190;
 const ENDPOINT_DIALOG_TRANSITION_MS = 180;
 const FULL_DUPLEX_TTS_TUNING = {
   initialBufferMs: 180,
-  fullDuplexInitialBufferMs: 320,
-  resumeLeadMs: 100,
-  lowWatermarkMs: 160,
-  maxBufferMs: 1400
+  fullDuplexInitialBufferMs: 420,
+  resumeLeadMs: 120,
+  lowWatermarkMs: 180,
+  maxBufferMs: 1600,
+  outputGain: 0.82,
+  limiterEnabled: true,
+  limiterThresholdDb: -6,
+  limiterRatio: 8,
+  boundarySmoothingMs: 3,
+  boundaryJumpThreshold: 0.35,
+  artifactGuardEnabled: true
 };
 const FULL_DUPLEX_MIC_CONSTRAINTS = {
   echoCancellation: true,
@@ -2510,7 +2518,8 @@ function applyFullDuplexTTSAudioDefaults(options = {}) {
   dom.playbackFrameDurationInput.value = "60";
   dom.helloPlaybackToggle.checked = true;
   applyMicConstraintsToInputs(FULL_DUPLEX_MIC_CONSTRAINTS);
-  applyPlaybackTuning(FULL_DUPLEX_TTS_TUNING);
+  const tuning = getFullDuplexPlaybackTuning();
+  applyPlaybackTuning(tuning);
   refreshSelectControls(dom.audioClientPanel);
   updateHelloPreview();
   saveState();
@@ -2523,7 +2532,7 @@ function applyFullDuplexTTSAudioDefaults(options = {}) {
         audio: getDraftAudioProfileSafe(),
         playback: getDraftPlaybackProfileSafe(),
         mic: getMicConstraintsFromInputs(),
-        playback_tuning: FULL_DUPLEX_TTS_TUNING
+        playback_tuning: tuning
       }
     });
   }
@@ -2554,6 +2563,28 @@ function applyPlaybackTuning(tuning = {}) {
   downlinkAudioPlayer?.setPlaybackTuning(normalizePlaybackTuningOptions(tuning));
 }
 
+function getFullDuplexPlaybackTuning() {
+  const guardEnabled = isPlaybackArtifactGuardEnabled();
+  if (guardEnabled) return { ...FULL_DUPLEX_TTS_TUNING };
+  return {
+    ...FULL_DUPLEX_TTS_TUNING,
+    outputGain: 1,
+    limiterEnabled: false,
+    boundarySmoothingMs: 0,
+    artifactGuardEnabled: false
+  };
+}
+
+function isPlaybackArtifactGuardEnabled() {
+  const params = new URLSearchParams(window.location.search);
+  const query = params.get("playback_artifact_guard");
+  if (query === "0" || query === "false" || query === "off") return false;
+  if (query === "1" || query === "true" || query === "on") return true;
+  const saved = localStorage.getItem(PLAYBACK_ARTIFACT_GUARD_KEY);
+  if (saved === "0" || saved === "false" || saved === "off") return false;
+  return true;
+}
+
 function normalizeMicConstraintsOptions(constraints = {}) {
   return {
     echoCancellation: constraints.echo_cancellation ?? constraints.echoCancellation ?? true,
@@ -2569,7 +2600,14 @@ function normalizePlaybackTuningOptions(tuning = {}) {
     fullDuplexInitialBufferMs: tuning.full_duplex_initial_buffer_ms ?? tuning.fullDuplexInitialBufferMs,
     resumeLeadMs: tuning.resume_lead_ms ?? tuning.resumeLeadMs,
     lowWatermarkMs: tuning.low_watermark_ms ?? tuning.lowWatermarkMs,
-    maxBufferMs: tuning.max_buffer_ms ?? tuning.maxBufferMs
+    maxBufferMs: tuning.max_buffer_ms ?? tuning.maxBufferMs,
+    outputGain: tuning.output_gain ?? tuning.outputGain,
+    limiterEnabled: tuning.limiter_enabled ?? tuning.limiterEnabled,
+    limiterThresholdDb: tuning.limiter_threshold_db ?? tuning.limiterThresholdDb,
+    limiterRatio: tuning.limiter_ratio ?? tuning.limiterRatio,
+    boundarySmoothingMs: tuning.boundary_smoothing_ms ?? tuning.boundarySmoothingMs,
+    boundaryJumpThreshold: tuning.boundary_jump_threshold ?? tuning.boundaryJumpThreshold,
+    artifactGuardEnabled: tuning.artifact_guard_enabled ?? tuning.artifactGuardEnabled
   });
 }
 
@@ -4504,18 +4542,29 @@ function updatePlaybackState(stats = downlinkAudioPlayer?.stats()) {
 function displayPlaybackState(stats = downlinkAudioPlayer?.stats()) {
   if (!stats) return "下行未开启";
   const underflow = stats.midSentenceUnderflowCount ? ` · 句中 UF ${stats.midSentenceUnderflowCount}` : "";
+  const artifact = artifactStatusSuffix(stats);
   const statusMap = {
     locked: "下行未开启",
     ready: "声音已开",
-    buffering: `下行缓冲中 ${stats.queueDelayMs}ms${underflow}`,
-    playing: `播放中 ${stats.queueDelayMs}ms${underflow}`,
+    buffering: `下行缓冲中 ${stats.queueDelayMs}ms${underflow}${artifact}`,
+    playing: `播放中 ${stats.queueDelayMs}ms${underflow}${artifact}`,
     muted: "下行静音",
     error: "播放失败"
   };
   return statusMap[stats.status] || stats.status;
 }
 
+function artifactStatusSuffix(stats = {}) {
+  const parts = [];
+  if (stats.clippingFrameCount) parts.push(`clip ${stats.clippingFrameCount}`);
+  if (stats.boundaryJumpCount) parts.push(`jump ${stats.boundaryJumpCount}`);
+  if (stats.lateFrameDroppedCount) parts.push(`late ${stats.lateFrameDroppedCount}`);
+  if (stats.profileMismatchCount) parts.push(`profile ${stats.profileMismatchCount}`);
+  return parts.length ? ` · ${parts.join("/")}` : "";
+}
+
 function playbackStatsTitle(stats = {}) {
+  const platform = stats.platform || {};
   return [
     `收到 ${stats.receivedFrames || 0} 帧/${stats.receivedBytes || 0}B`,
     `已播 ${stats.playedFrames || 0}`,
@@ -4526,10 +4575,27 @@ function playbackStatsTitle(stats = {}) {
     `句中 ${stats.midSentenceUnderflowCount || 0}`,
     `低水位 ${stats.lowWatermarkCount || 0}`,
     `解码 avg/max ${stats.decodeAvgMs || 0}/${stats.decodeMaxMs || 0}ms`,
+    `clip ${formatPercent(stats.clippingSampleRatio || 0)} / frames ${stats.clippingFrameCount || 0}`,
+    `peak/rms ${stats.peakDbMax ?? -120}/${stats.rmsDbLast ?? -120}dB`,
+    `jump ${stats.boundaryJumpCount || 0}/${stats.boundaryJumpMax || 0}`,
+    `smooth ${stats.smoothedBoundaryCount || 0}`,
+    `late ${stats.lateFrameDroppedCount || 0}`,
+    `profile ${stats.profileMismatchCount || 0}`,
+    `limiter ${stats.limiterReductionMaxDb || 0}dB`,
     `麦克风 ${stats.micActive ? "开" : "关"}`,
     `缓冲 ${stats.initialBufferMs || 0}/${stats.resumeLeadMs || 0}/${stats.maxBufferMs || 0}ms`,
-    `codec ${stats.codec || "-"}`
+    `gain ${stats.outputGain ?? 1}`,
+    `guard ${stats.artifactGuardEnabled ? "on" : "off"}`,
+    `codec ${stats.codec || "-"}`,
+    `ctx ${platform.audioContextSampleRate || "-"}Hz`,
+    platform.isWeChat ? "WeChat/WebView" : platform.isMobile ? "Mobile" : "Desktop"
   ].join(" · ");
+}
+
+function formatPercent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "0.00%";
+  return `${(num * 100).toFixed(2)}%`;
 }
 
 function playbackButtonTitle(stats) {
@@ -5982,6 +6048,7 @@ function displayStepName(name) {
     start_mic: "开始全双工",
     stop_mic: "停止全双工",
     expect_playback_stats: "检查播放指标",
+    expect_playback_quality: "检查播放质量",
     stream_silence: "静音推流",
     stream_tts: "生成语音推流",
     send_hello: "发送 Hello",

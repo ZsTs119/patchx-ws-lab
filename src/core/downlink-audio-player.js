@@ -35,6 +35,25 @@ export class DownlinkAudioPlayer {
     this.maxBufferMs = 1200;
     this.micActive = false;
     this.sentenceScheduledFrames = 0;
+    this.outputGain = null;
+    this.limiter = null;
+    this.outputChainConnected = false;
+    this.outputGainValue = 1;
+    this.limiterEnabled = false;
+    this.limiterThresholdDb = -6;
+    this.limiterRatio = 8;
+    this.boundarySmoothingMs = 0;
+    this.boundaryJumpThreshold = 0.35;
+    this.lastBoundaryTailSample = 0;
+    this.hasLastBoundaryTailSample = false;
+    this.forceNextFadeIn = false;
+    this.acceptBinaryUntilMs = 0;
+    this.dropBinaryUntilNextStart = false;
+    this.playbackGeneration = 0;
+    this.lastTtsStopAtMs = 0;
+    this.lastTtsStartAtMs = 0;
+    this.artifactGuardEnabled = false;
+    this.platformSnapshot = null;
   }
 
   async unlock() {
@@ -48,6 +67,8 @@ export class DownlinkAudioPlayer {
     if (this.context.state === "suspended") {
       await this.context.resume();
     }
+    this.ensureOutputChain();
+    this.updatePlatformSnapshot();
     this.playSilentUnlockFrame();
     this.unlocked = true;
     this.setStatus(this.muted ? "muted" : "ready");
@@ -70,18 +91,28 @@ export class DownlinkAudioPlayer {
     const state = payload.state || "";
     if (payload.audio_codec) {
       this.codec = normalizeCodec(payload.audio_codec);
+      this.recordCodecMarker(payload.audio_codec);
     }
     if (state === "start") {
       this.clear("tts_start", { keepUnlocked: true, keepStats: true });
       this.ttsActive = true;
       this.sentenceScheduledFrames = 0;
+      this.playbackGeneration += 1;
+      this.lastTtsStartAtMs = nowMs();
+      this.acceptBinaryUntilMs = 0;
+      this.dropBinaryUntilNextStart = false;
+      this.hasLastBoundaryTailSample = false;
+      this.forceNextFadeIn = true;
       this.codec = normalizeCodec(payload.audio_codec || this.codec || this.profile.format);
+      if (!payload.audio_codec) this.statsData.codecSource = "profile";
       this.setStatus(this.unlocked && !this.muted ? "buffering" : this.statusForIdle());
       return;
     }
     if (state === "sentence_start") {
       this.ttsActive = true;
       this.sentenceScheduledFrames = 0;
+      this.dropBinaryUntilNextStart = false;
+      this.acceptBinaryUntilMs = 0;
       if (payload.audio_codec) this.codec = normalizeCodec(payload.audio_codec);
       if (this.unlocked && !this.muted && !this.sources.size) {
         this.setStatus("buffering");
@@ -91,10 +122,14 @@ export class DownlinkAudioPlayer {
     if (state === "stop") {
       this.ttsActive = false;
       const reason = payload.reason || "";
+      this.lastTtsStopAtMs = nowMs();
       if (reason === "interrupt" || reason === "abort") {
+        this.dropBinaryUntilNextStart = true;
+        this.acceptBinaryUntilMs = 0;
         this.clear(reason, { keepUnlocked: true, keepStats: true });
         return;
       }
+      this.acceptBinaryUntilMs = nowMs() + 300;
       this.flushPending();
       this.updateStatusAfterQueue();
     }
@@ -105,6 +140,15 @@ export class DownlinkAudioPlayer {
     this.statsData.receivedBytes += arrayBuffer?.byteLength || 0;
     if (!arrayBuffer?.byteLength) return this.stats();
     this.refreshProfile();
+    if (!this.canAcceptBinaryFrame()) {
+      this.statsData.droppedFrames += 1;
+      this.statsData.lateFrameDroppedCount += 1;
+      this.statsData.lastDropReason = this.dropBinaryUntilNextStart ? "late_after_interrupt" : "late_after_stop";
+      this.statsData.lastLateFrameAt = new Date().toISOString();
+      this.statsData.lastLateFrameGeneration = this.playbackGeneration;
+      return this.stats();
+    }
+    this.validateFrameProfile(arrayBuffer);
     if (!this.unlocked || !this.context) {
       this.statsData.droppedFrames += 1;
       this.statsData.lastDropReason = "locked";
@@ -127,8 +171,9 @@ export class DownlinkAudioPlayer {
       this.statsData.decodedFrames += 1;
       this.statsData.decodeTotalMs += decodeMs;
       this.statsData.decodeMaxMs = Math.max(this.statsData.decodeMaxMs, decodeMs);
-      this.pendingBuffers.push(buffer);
-      this.pendingMs += buffer.duration * 1000;
+      const prepared = this.prepareDecodedBuffer(buffer);
+      this.pendingBuffers.push(prepared);
+      this.pendingMs += prepared.duration * 1000;
       if (this.pendingMs >= this.effectiveInitialBufferMs() || !this.ttsActive) {
         this.flushPending();
       } else {
@@ -158,6 +203,8 @@ export class DownlinkAudioPlayer {
     this.nextPlayTime = 0;
     this.ttsActive = false;
     this.sentenceScheduledFrames = 0;
+    this.hasLastBoundaryTailSample = false;
+    this.forceNextFadeIn = true;
     if (!options.keepStats) {
       this.statsData = createStats();
     }
@@ -170,6 +217,9 @@ export class DownlinkAudioPlayer {
   }
 
   stats() {
+    if (this.limiter && Number.isFinite(this.limiter.reduction)) {
+      this.statsData.limiterReductionMaxDb = Math.max(this.statsData.limiterReductionMaxDb, Math.abs(this.limiter.reduction));
+    }
     const queueDelayMs = this.context
       ? Math.max(0, Math.round((this.nextPlayTime - this.context.currentTime) * 1000 + this.pendingMs))
       : Math.round(this.pendingMs);
@@ -191,6 +241,14 @@ export class DownlinkAudioPlayer {
       resumeLeadMs: this.resumeLeadMs,
       lowWatermarkMs: this.lowWatermarkMs,
       maxBufferMs: this.maxBufferMs,
+      outputGain: this.outputGainValue,
+      limiterEnabled: this.limiterEnabled,
+      limiterThresholdDb: this.limiterThresholdDb,
+      limiterRatio: this.limiterRatio,
+      boundarySmoothingMs: this.boundarySmoothingMs,
+      artifactGuardEnabled: this.artifactGuardEnabled,
+      playbackGeneration: this.playbackGeneration,
+      platform: this.platformSnapshot || this.updatePlatformSnapshot(),
       queueDelayMs
     };
   }
@@ -214,6 +272,34 @@ export class DownlinkAudioPlayer {
     if (Object.prototype.hasOwnProperty.call(options, "maxBufferMs")) {
       this.maxBufferMs = clampNumber(options.maxBufferMs, 300, 5000, 1200);
     }
+    if (Object.prototype.hasOwnProperty.call(options, "outputGain")) {
+      this.setOutputGain(clampNumber(options.outputGain, 0.2, 1.2, 1));
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "limiterEnabled")) {
+      const next = Boolean(options.limiterEnabled);
+      if (this.limiterEnabled !== next) {
+        this.limiterEnabled = next;
+        this.rebuildOutputChain();
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "limiterThresholdDb")) {
+      this.limiterThresholdDb = clampNumber(options.limiterThresholdDb, -36, 0, -6);
+      if (this.limiter) this.limiter.threshold.value = this.limiterThresholdDb;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "limiterRatio")) {
+      this.limiterRatio = clampNumber(options.limiterRatio, 1, 20, 8);
+      if (this.limiter) this.limiter.ratio.value = this.limiterRatio;
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "boundarySmoothingMs")) {
+      this.boundarySmoothingMs = clampNumber(options.boundarySmoothingMs, 0, 12, 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "boundaryJumpThreshold")) {
+      this.boundaryJumpThreshold = clampNumber(options.boundaryJumpThreshold, 0.05, 1.8, 0.35);
+    }
+    if (Object.prototype.hasOwnProperty.call(options, "artifactGuardEnabled")) {
+      this.artifactGuardEnabled = Boolean(options.artifactGuardEnabled);
+    }
+    this.updatePlatformSnapshot();
     this.onState?.(this.stats());
   }
 
@@ -234,6 +320,37 @@ export class DownlinkAudioPlayer {
 
   currentCodec(fallback = "") {
     return normalizeCodec(this.codec || fallback || this.profile.format || DEFAULT_PROFILE.format);
+  }
+
+  recordCodecMarker(value) {
+    const marker = normalizeCodec(value);
+    const active = normalizeProfile(this.getProfile?.() || DEFAULT_PROFILE).format;
+    this.statsData.codecSource = "tts_event";
+    if (marker !== active) {
+      this.statsData.profileMismatchCount += 1;
+      this.statsData.lastProfileMismatch = `tts codec ${marker}, playback profile ${active}`;
+    }
+  }
+
+  canAcceptBinaryFrame() {
+    if (this.dropBinaryUntilNextStart) return false;
+    if (this.ttsActive) return true;
+    if (this.acceptBinaryUntilMs && nowMs() <= this.acceptBinaryUntilMs) return true;
+    return !this.lastTtsStartAtMs;
+  }
+
+  validateFrameProfile(arrayBuffer) {
+    if (this.currentCodec() !== "pcm") return;
+    const expectedBytes = this.profile.frameSamples * 2;
+    if (!expectedBytes) return;
+    const bytes = arrayBuffer?.byteLength || 0;
+    if (bytes === expectedBytes) return;
+    if (bytes > expectedBytes && bytes % expectedBytes === 0) {
+      this.statsData.batchedFrameCount += Math.floor(bytes / expectedBytes);
+      return;
+    }
+    this.statsData.profileMismatchCount += 1;
+    this.statsData.lastProfileMismatch = `pcm bytes ${bytes}, expected ${expectedBytes}`;
   }
 
   decodeToAudioBuffer(arrayBuffer) {
@@ -304,17 +421,19 @@ export class DownlinkAudioPlayer {
         this.statsData.midSentenceUnderflowCount += 1;
       }
       this.nextPlayTime = now + this.resumeLeadMs / 1000;
+      this.forceNextFadeIn = true;
     }
     if ((this.nextPlayTime - now) * 1000 > this.maxBufferMs) {
       const dropped = this.stopScheduledSources("queue_overflow");
       this.statsData.droppedFrames += Math.max(1, dropped);
       this.statsData.lastDropReason = "queue_overflow";
       this.nextPlayTime = now + this.resumeLeadMs / 1000;
+      this.forceNextFadeIn = true;
     }
 
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.context.destination);
+    source.connect(this.ensureOutputChain() || this.context.destination);
     source.onended = () => {
       this.sources.delete(source);
       if (this.cancelledSources.delete(source)) {
@@ -326,10 +445,147 @@ export class DownlinkAudioPlayer {
     };
     source.start(this.nextPlayTime);
     this.sources.add(source);
+    this.statsData.activeSourceCountMax = Math.max(this.statsData.activeSourceCountMax, this.sources.size);
     this.statsData.scheduledFrames += 1;
     this.sentenceScheduledFrames += 1;
     this.nextPlayTime += buffer.duration;
     this.setStatus("playing");
+  }
+
+  prepareDecodedBuffer(buffer) {
+    this.recordBufferQuality(buffer);
+    const prepared = this.smoothBoundaryIfNeeded(buffer);
+    this.captureTailSample(prepared);
+    return prepared;
+  }
+
+  recordBufferQuality(buffer) {
+    const samples = readFirstChannel(buffer);
+    if (!samples.length) return;
+    let peak = 0;
+    let sumSquares = 0;
+    let clipping = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const abs = Math.abs(samples[i]);
+      peak = Math.max(peak, abs);
+      sumSquares += samples[i] * samples[i];
+      if (abs >= 0.985) clipping += 1;
+    }
+    const rms = Math.sqrt(sumSquares / samples.length);
+    const peakDb = amplitudeToDb(peak);
+    const rmsDb = amplitudeToDb(rms);
+    this.statsData.analyzedSampleCount += samples.length;
+    this.statsData.clippingSampleCount += clipping;
+    if (clipping) this.statsData.clippingFrameCount += 1;
+    this.statsData.peakDbMax = Math.max(this.statsData.peakDbMax, peakDb);
+    this.statsData.rmsDbLast = rmsDb;
+    this.statsData.clippingSampleRatio = this.statsData.analyzedSampleCount
+      ? this.statsData.clippingSampleCount / this.statsData.analyzedSampleCount
+      : 0;
+    if (this.hasLastBoundaryTailSample) {
+      const jump = Math.abs(samples[0] - this.lastBoundaryTailSample);
+      this.statsData.boundaryJumpMax = Math.max(this.statsData.boundaryJumpMax, roundTo(jump, 4));
+      if (jump >= this.boundaryJumpThreshold) {
+        this.statsData.boundaryJumpCount += 1;
+      }
+    }
+  }
+
+  smoothBoundaryIfNeeded(buffer) {
+    if (!this.artifactGuardEnabled || !this.boundarySmoothingMs || !buffer?.length) return buffer;
+    const samples = readFirstChannel(buffer);
+    if (!samples.length) return buffer;
+    const firstSample = samples[0] || 0;
+    const jump = this.hasLastBoundaryTailSample
+      ? Math.abs(firstSample - this.lastBoundaryTailSample)
+      : 0;
+    const shouldSmooth = this.forceNextFadeIn || (this.hasLastBoundaryTailSample && jump >= this.boundaryJumpThreshold);
+    if (!shouldSmooth) return buffer;
+    const next = cloneAudioBuffer(this.context, buffer);
+    const channel = next.getChannelData(0);
+    const smoothingSamples = Math.min(channel.length, Math.max(1, Math.round(next.sampleRate * this.boundarySmoothingMs / 1000)));
+    const startValue = this.forceNextFadeIn
+      ? 0
+      : this.lastBoundaryTailSample;
+    for (let i = 0; i < smoothingSamples; i++) {
+      const t = (i + 1) / smoothingSamples;
+      channel[i] = startValue * (1 - t) + channel[i] * t;
+    }
+    this.statsData.smoothedBoundaryCount += 1;
+    this.forceNextFadeIn = false;
+    return next;
+  }
+
+  captureTailSample(buffer) {
+    const samples = readFirstChannel(buffer);
+    if (!samples.length) return;
+    this.lastBoundaryTailSample = samples[samples.length - 1] || 0;
+    this.hasLastBoundaryTailSample = true;
+  }
+
+  ensureOutputChain() {
+    if (!this.context) return null;
+    if (!this.outputGain) {
+      this.outputGain = this.context.createGain();
+      this.outputGain.gain.value = this.outputGainValue;
+    }
+    if (!this.limiter && this.context.createDynamicsCompressor) {
+      this.limiter = this.context.createDynamicsCompressor();
+      this.limiter.threshold.value = this.limiterThresholdDb;
+      this.limiter.knee.value = 6;
+      this.limiter.ratio.value = this.limiterRatio;
+      this.limiter.attack.value = 0.003;
+      this.limiter.release.value = 0.08;
+      this.rebuildOutputChain();
+    } else if (!this.outputChainConnected) {
+      this.rebuildOutputChain();
+    }
+    return this.outputGain;
+  }
+
+  rebuildOutputChain() {
+    if (!this.context || !this.outputGain) return;
+    try {
+      this.outputGain.disconnect();
+    } catch {
+      // Ignore disconnected nodes.
+    }
+    try {
+      this.limiter?.disconnect();
+    } catch {
+      // Ignore disconnected nodes.
+    }
+    if (this.limiterEnabled && this.limiter) {
+      this.outputGain.connect(this.limiter);
+      this.limiter.connect(this.context.destination);
+    } else {
+      this.outputGain.connect(this.context.destination);
+    }
+    this.outputChainConnected = true;
+  }
+
+  setOutputGain(value) {
+    this.outputGainValue = value;
+    if (!this.outputGain || !this.context) return;
+    const now = this.context.currentTime;
+    this.outputGain.gain.cancelScheduledValues(now);
+    this.outputGain.gain.setTargetAtTime(value, now, 0.015);
+  }
+
+  updatePlatformSnapshot() {
+    const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent || "";
+    this.platformSnapshot = {
+      userAgent,
+      isMobile: /android|iphone|ipad|ipod|mobile/i.test(userAgent),
+      isWeChat: /micromessenger/i.test(userAgent),
+      audioContextSampleRate: this.context?.sampleRate || null,
+      audioContextBaseLatency: this.context?.baseLatency ?? null,
+      audioContextOutputLatency: this.context?.outputLatency ?? null,
+      micActive: this.micActive,
+      playbackCodec: this.currentCodec(),
+      artifactGuardEnabled: this.artifactGuardEnabled
+    };
+    return this.platformSnapshot;
   }
 
   stopScheduledSources(reason) {
@@ -371,7 +627,7 @@ export class DownlinkAudioPlayer {
     const buffer = this.context.createBuffer(1, 1, this.context.sampleRate);
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.context.destination);
+    source.connect(this.ensureOutputChain() || this.context.destination);
     source.start(0);
   }
 
@@ -425,12 +681,30 @@ function createStats() {
     decodedFrames: 0,
     decodeTotalMs: 0,
     decodeMaxMs: 0,
+    analyzedSampleCount: 0,
+    clippingSampleCount: 0,
+    clippingSampleRatio: 0,
+    clippingFrameCount: 0,
+    peakDbMax: -120,
+    rmsDbLast: -120,
+    boundaryJumpCount: 0,
+    boundaryJumpMax: 0,
+    smoothedBoundaryCount: 0,
+    lateFrameDroppedCount: 0,
+    activeSourceCountMax: 0,
+    limiterReductionMaxDb: 0,
+    profileMismatchCount: 0,
+    batchedFrameCount: 0,
     decodeErrors: 0,
     lastError: "",
     lastDropReason: "",
     lastClearReason: "",
     lastUnderflowAt: "",
-    lastQueueLeadMs: 0
+    lastQueueLeadMs: 0,
+    lastLateFrameAt: "",
+    lastLateFrameGeneration: 0,
+    lastProfileMismatch: "",
+    codecSource: "profile"
   };
 }
 
@@ -459,6 +733,30 @@ function clampNumber(value, min, max, fallback) {
 
 function nowMs() {
   return window.performance?.now ? window.performance.now() : Date.now();
+}
+
+function readFirstChannel(buffer) {
+  if (!buffer?.numberOfChannels || !buffer.length) return new Float32Array(0);
+  return buffer.getChannelData(0);
+}
+
+function cloneAudioBuffer(context, buffer) {
+  const next = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    next.copyToChannel(buffer.getChannelData(channel), channel);
+  }
+  return next;
+}
+
+function amplitudeToDb(value) {
+  const safe = Math.max(0, Number(value) || 0);
+  if (safe <= 0.000001) return -120;
+  return Math.max(-120, roundTo(20 * Math.log10(safe), 1));
+}
+
+function roundTo(value, digits = 2) {
+  const scale = 10 ** digits;
+  return Math.round((Number(value) || 0) * scale) / scale;
 }
 
 function createOpusDecoder(sampleRate) {
