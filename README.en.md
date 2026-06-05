@@ -219,7 +219,9 @@ Built-in remote environments:
 | Environment | WebSocket | Dev REST |
 |-------------|-----------|----------|
 | 小精灵生产环境 | `wss://ws-lab.patch-x.cn/env/prod/ws` | `https://ws-lab.patch-x.cn/env/prod/api/v1/dev/ws-lab` |
-| 小精灵测试环境 | `wss://ws-lab.patch-x.cn/env/test/ws` | `https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab` |
+| 小精灵测试环境 7003 | `wss://ws-lab.patch-x.cn/env/test/ws` | `https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab` |
+| 小精灵测试环境 7002 | `wss://ws-lab.patch-x.cn/env/test-7002/ws` | `https://ws-lab.patch-x.cn/env/test-7002/api/v1/dev/ws-lab` |
+| 小精灵测试环境 7004 | `wss://ws-lab.patch-x.cn/env/test-7004/ws` | `https://ws-lab.patch-x.cn/env/test-7004/api/v1/dev/ws-lab` |
 | 小精灵日语环境 | `wss://ws-lab.patch-x.cn/env/ja/ws` | `https://ws-lab.patch-x.cn/env/ja/api/v1/dev/ws-lab` |
 | 小精灵英语环境 | `wss://ws-lab.patch-x.cn/env/en/ws` | `https://ws-lab.patch-x.cn/env/en/api/v1/dev/ws-lab` |
 
@@ -243,7 +245,9 @@ Recommended backend mapping for `ws-lab.patch-x.cn`: Caddy owns the public HTTPS
 | Environment | WS upstream | Dev REST upstream |
 |-------------|-------------|-------------------|
 | 小精灵生产环境 | `14.103.229.80:8460` | `14.103.229.80:8410` |
-| 小精灵测试环境 | `14.103.222.77:7003` | `14.103.222.77:7103` |
+| 小精灵测试环境 7003 | `14.103.222.77:7003` | `14.103.222.77:7103` |
+| 小精灵测试环境 7002 | `14.103.222.77:7002` | `14.103.222.77:7102` |
+| 小精灵测试环境 7004 | `14.103.222.77:7004` | `14.103.222.77:7104` |
 | 小精灵日语环境 | `199.223.236.153:7002` | `199.223.236.153:7102` |
 | 小精灵英语环境 | `199.223.236.153:7001` | `199.223.236.153:7101` |
 

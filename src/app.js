@@ -51,9 +51,23 @@ const builtInEndpointConfigs = [
   },
   {
     id: "sprite-test",
-    label: "小精灵测试环境",
+    label: "小精灵测试环境 7003",
     ws: "wss://ws-lab.patch-x.cn/env/test/ws",
     rest: "https://ws-lab.patch-x.cn/env/test/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
+    id: "sprite-test-7002",
+    label: "小精灵测试环境 7002",
+    ws: "wss://ws-lab.patch-x.cn/env/test-7002/ws",
+    rest: "https://ws-lab.patch-x.cn/env/test-7002/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
+    id: "sprite-test-7004",
+    label: "小精灵测试环境 7004",
+    ws: "wss://ws-lab.patch-x.cn/env/test-7004/ws",
+    rest: "https://ws-lab.patch-x.cn/env/test-7004/api/v1/dev/ws-lab",
     remote: true
   },
   {
