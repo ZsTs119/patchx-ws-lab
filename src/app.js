@@ -1318,7 +1318,9 @@ function bindEvents() {
 
   dom.healthBtn?.addEventListener("click", checkHealth);
   dom.endpointHealthBtn?.addEventListener("click", checkHealth);
-  dom.connectBtn.addEventListener("click", connectAndHello);
+  dom.connectBtn.addEventListener("click", () => {
+    void connectAndHello({ unlockPlayback: true, unlockReason: "connect" });
+  });
   dom.disconnectBtn.addEventListener("click", () => wsClient.disconnect());
   dom.copyHelloBtn.addEventListener("click", copyHelloJson);
   dom.expandHelloBtn.addEventListener("click", openHelloDialog);
@@ -1331,7 +1333,9 @@ function bindEvents() {
   dom.inspectorDetailDialog.addEventListener("click", (event) => {
     if (event.target === dom.inspectorDetailDialog) closeInspectorDetail();
   });
-  dom.sendTextBtn.addEventListener("click", sendText);
+  dom.sendTextBtn.addEventListener("click", () => {
+    void sendText({ unlockPlayback: true });
+  });
   dom.textMessageInput.addEventListener("keydown", handleTextComposerKeydown);
   dom.textMessageInput.addEventListener("input", autoResizeComposer);
   dom.textMessageInput.addEventListener("focus", autoResizeComposer);
@@ -2629,21 +2633,25 @@ function compactObject(value = {}) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
 
-async function connectAndHello() {
+async function connectAndHello(options = {}) {
   try {
-    await openWsAndSendHello();
+    await openWsAndSendHello(options);
   } catch (error) {
     store.add({ direction: "system", type: "error", error: error.message });
     updateConnectionState("error");
   }
 }
 
-async function openWsAndSendHello() {
+async function openWsAndSendHello(options = {}) {
+  const { unlockPlayback = false, unlockReason = "connect" } = options;
   enforceLockedAuthEndpoint();
   const identity = readIdentityFromInputs();
   const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
   const restBase = normalizeRestInput(dom.restBaseInput.value);
   assertEndpointCompatibleWithPage(wsUrl, restBase);
+  if (unlockPlayback) {
+    await unlockDownlinkPlaybackFromUserGesture(unlockReason, { silent: true });
+  }
   downlinkAudioPlayer?.clear("connect", { keepUnlocked: true });
   await wsClient.connect(wsUrl, identity);
   wsClient.sendJson(buildHello());
@@ -2653,10 +2661,14 @@ async function openWsAndSendHello() {
   saveState();
 }
 
-function sendText() {
+async function sendText(options = {}) {
   try {
+    const { unlockPlayback = true } = options;
     const text = dom.textMessageInput.value.trim();
     if (!text) return;
+    if (unlockPlayback) {
+      await unlockDownlinkPlaybackFromUserGesture("send_text", { silent: true });
+    }
     wsClient.sendTextListen(text, wsClient.sessionId);
     rememberExpectedInputText(text, 8000);
     dom.textMessageInput.value = "";
@@ -2669,7 +2681,7 @@ function sendText() {
 function handleTextComposerKeydown(event) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
   event.preventDefault();
-  sendText();
+  void sendText({ unlockPlayback: true });
 }
 
 function updateCustomTemplate() {
@@ -3854,6 +3866,34 @@ async function unlockDownlinkPlayback() {
   await downlinkAudioPlayer?.unlock();
 }
 
+async function unlockDownlinkPlaybackFromUserGesture(reason = "user_action", options = {}) {
+  const { silent = false } = options;
+  if (!downlinkAudioPlayer) return false;
+  const stats = downlinkAudioPlayer.stats();
+  if (stats.muted) return false;
+  const wasReady = stats.unlocked && stats.status !== "locked";
+  try {
+    await downlinkAudioPlayer.unlock();
+    if (!silent && !wasReady) {
+      store.add({
+        direction: "system",
+        type: "audio_playback",
+        label: "声音已开启",
+        payload: { reason }
+      });
+    }
+    return true;
+  } catch (error) {
+    store.add({
+      direction: "system",
+      type: "audio_playback",
+      error: `声音开启失败: ${error.message}`,
+      payload: { reason }
+    });
+    return false;
+  }
+}
+
 function syncDownlinkMicState(value = audioStreamer?.mode || "idle") {
   const active = String(value || "").startsWith("mic");
   const current = downlinkAudioPlayer?.stats()?.micActive;
@@ -4583,6 +4623,7 @@ function playbackStatsTitle(stats = {}) {
     `收到 ${stats.receivedFrames || 0} 帧/${stats.receivedBytes || 0}B`,
     `已播 ${stats.playedFrames || 0}`,
     `丢弃 ${stats.droppedFrames || 0}`,
+    stats.lastDropReason ? `丢弃原因 ${stats.lastDropReason}` : "",
     `队列 ${stats.queueDelayMs || 0}ms`,
     `UF ${stats.underflowCount || 0}`,
     `首帧 ${stats.startupUnderflowCount || 0}`,
@@ -4603,7 +4644,7 @@ function playbackStatsTitle(stats = {}) {
     `codec ${stats.codec || "-"}`,
     `ctx ${platform.audioContextSampleRate || "-"}Hz`,
     platform.isWeChat ? "WeChat/WebView" : platform.isMobile ? "Mobile" : "Desktop"
-  ].join(" · ");
+  ].filter(Boolean).join(" · ");
 }
 
 function formatPercent(value) {
@@ -5229,7 +5270,7 @@ async function handleQuickConnectionAction() {
     return;
   }
   probeEnvironmentCapabilities({ silent: true, force: true });
-  await connectAndHello();
+  await connectAndHello({ unlockPlayback: true, unlockReason: "quick_connect" });
 }
 
 function updateQuickConnectionButton(stateName = "idle") {
