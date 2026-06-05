@@ -1319,7 +1319,8 @@ function bindEvents() {
   dom.healthBtn?.addEventListener("click", checkHealth);
   dom.endpointHealthBtn?.addEventListener("click", checkHealth);
   dom.connectBtn.addEventListener("click", () => {
-    void connectAndHello({ unlockPlayback: true, unlockReason: "connect" });
+    const playbackUnlock = enableDownlinkPlaybackFromGesture("connect", { silent: true, allowUnmute: true });
+    void connectAndHello({ playbackUnlock });
   });
   dom.disconnectBtn.addEventListener("click", () => wsClient.disconnect());
   dom.copyHelloBtn.addEventListener("click", copyHelloJson);
@@ -2643,14 +2644,21 @@ async function connectAndHello(options = {}) {
 }
 
 async function openWsAndSendHello(options = {}) {
-  const { unlockPlayback = false, unlockReason = "connect" } = options;
+  const {
+    unlockPlayback = false,
+    unlockReason = "connect",
+    playbackUnlock = null,
+    allowUnmutePlayback = false
+  } = options;
   enforceLockedAuthEndpoint();
   const identity = readIdentityFromInputs();
   const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
   const restBase = normalizeRestInput(dom.restBaseInput.value);
   assertEndpointCompatibleWithPage(wsUrl, restBase);
-  if (unlockPlayback) {
-    await unlockDownlinkPlaybackFromUserGesture(unlockReason, { silent: true });
+  if (playbackUnlock) {
+    await playbackUnlock;
+  } else if (unlockPlayback) {
+    await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
   }
   downlinkAudioPlayer?.clear("connect", { keepUnlocked: true });
   await wsClient.connect(wsUrl, identity);
@@ -2663,11 +2671,18 @@ async function openWsAndSendHello(options = {}) {
 
 async function sendText(options = {}) {
   try {
-    const { unlockPlayback = true } = options;
+    const {
+      unlockPlayback = true,
+      unlockReason = "send_text",
+      playbackUnlock = null,
+      allowUnmutePlayback = false
+    } = options;
     const text = dom.textMessageInput.value.trim();
     if (!text) return;
-    if (unlockPlayback) {
-      await unlockDownlinkPlaybackFromUserGesture("send_text", { silent: true });
+    if (playbackUnlock) {
+      await playbackUnlock;
+    } else if (unlockPlayback) {
+      await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
     }
     wsClient.sendTextListen(text, wsClient.sessionId);
     rememberExpectedInputText(text, 8000);
@@ -3863,27 +3878,33 @@ function stopMicInput() {
 }
 
 async function unlockDownlinkPlayback() {
-  await downlinkAudioPlayer?.unlock();
+  await enableDownlinkPlaybackFromGesture("manual", { allowUnmute: true });
 }
 
-async function unlockDownlinkPlaybackFromUserGesture(reason = "user_action", options = {}) {
-  const { silent = false } = options;
+async function enableDownlinkPlaybackFromGesture(reason = "user_action", options = {}) {
+  const { silent = false, allowUnmute = false } = options;
   if (!downlinkAudioPlayer) return false;
-  const stats = downlinkAudioPlayer.stats();
-  if (stats.muted) return false;
-  const wasReady = stats.unlocked && stats.status !== "locked";
+  const before = downlinkAudioPlayer.stats();
+  if (before.muted && !allowUnmute) return false;
+  const wasMuted = before.muted;
+  const wasReady = before.unlocked && before.status !== "locked" && !before.muted;
   try {
-    await downlinkAudioPlayer.unlock();
-    if (!silent && !wasReady) {
+    if (wasMuted) {
+      downlinkAudioPlayer.toggleMute();
+    }
+    const nextStats = await downlinkAudioPlayer.unlock();
+    updatePlaybackState(nextStats || downlinkAudioPlayer.stats());
+    if (!silent && (!wasReady || wasMuted)) {
       store.add({
         direction: "system",
         type: "audio_playback",
-        label: "声音已开启",
+        label: wasMuted ? "下行声音已恢复" : "声音已开启",
         payload: { reason }
       });
     }
     return true;
   } catch (error) {
+    updatePlaybackState(downlinkAudioPlayer.stats());
     store.add({
       direction: "system",
       type: "audio_playback",
@@ -4561,9 +4582,8 @@ function handleDownlinkAudioEvent(event) {
 async function handlePlaybackToggleAction() {
   try {
     const stats = downlinkAudioPlayer.stats();
-    if (!stats.unlocked) {
-      await downlinkAudioPlayer.unlock();
-      store.add({ direction: "system", type: "audio_playback", label: "声音已开启" });
+    if (!stats.unlocked || stats.muted) {
+      await enableDownlinkPlaybackFromGesture("toggle_playback", { allowUnmute: true });
       return;
     }
     const muted = downlinkAudioPlayer.toggleMute();
@@ -5270,7 +5290,8 @@ async function handleQuickConnectionAction() {
     return;
   }
   probeEnvironmentCapabilities({ silent: true, force: true });
-  await connectAndHello({ unlockPlayback: true, unlockReason: "quick_connect" });
+  const playbackUnlock = enableDownlinkPlaybackFromGesture("quick_connect", { silent: true, allowUnmute: true });
+  await connectAndHello({ playbackUnlock });
 }
 
 function updateQuickConnectionButton(stateName = "idle") {
