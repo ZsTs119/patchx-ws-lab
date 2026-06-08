@@ -15,6 +15,7 @@
     { "id": "full-duplex-tts-playback-artifact-guard", "type": "json", "path": "./modules/full-duplex-tts-playback-artifact-guard.json" },
     { "id": "boot-greeting-onboarding", "type": "json", "path": "./modules/boot-greeting-onboarding.json" },
     { "id": "intent-tool-observation", "type": "json", "path": "./modules/intent-tool-observation.json" },
+    { "id": "friend-request-direct-ws", "type": "json", "path": "./modules/friend-request-direct-ws.json" },
     { "id": "reconnect-error-protocol", "type": "json", "path": "./modules/reconnect-error-protocol.json" },
     { "id": "heartbeat-tools", "type": "js", "path": "./modules/heartbeat-tools.js" },
     { "id": "invalid-sample", "type": "json", "path": "./modules/invalid-sample.json" }

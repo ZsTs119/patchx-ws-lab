@@ -443,12 +443,23 @@ function matchesEvent(event, step) {
       if (event.payload?.[key] !== value) return false;
     }
   }
+  for (const key of normalizeStringList(step.payload_present)) {
+    const value = event.payload?.[key];
+    if (value === undefined || value === null || value === "") return false;
+  }
   return true;
 }
 
 function normalizeExpectedEvents(raw) {
   if (!raw) return [];
   return Array.isArray(raw) ? raw : [raw];
+}
+
+function normalizeStringList(raw) {
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : [raw])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
 }
 
 function normalizeKeywords(step = {}) {

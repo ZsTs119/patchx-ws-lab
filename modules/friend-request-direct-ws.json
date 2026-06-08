@@ -1,0 +1,72 @@
+{
+  "id": "friend-request-direct-ws",
+  "name": "加好友直发 WS",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证 Intent V2 加好友模式命中后直接下发 friend_request WS，四个 action 均携带连接上下文，且成功路径不进入 TTS start。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.friend-request-direct-ws",
+      "label": "加好友 · 四态直发 WS",
+      "description": "连续发送加好友、同意、拒绝、取消四个文本回合，应依次收到 add_friend/accept/reject/cancel，且不出现 tts start。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "加好友" },
+        {
+          "action": "wait_ws",
+          "type": "friend_request",
+          "payload": {
+            "action": "add_friend",
+            "action_label": "添加好友"
+          },
+          "payload_present": ["session_id", "user_id", "device_id"],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "tts", "state": "start", "timeout_ms": 1500 },
+        { "action": "send_text", "text": "同意好友申请" },
+        {
+          "action": "wait_ws",
+          "type": "friend_request",
+          "payload": {
+            "action": "accept",
+            "action_label": "同意"
+          },
+          "payload_present": ["session_id", "user_id", "device_id"],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "tts", "state": "start", "timeout_ms": 1500 },
+        { "action": "send_text", "text": "拒绝好友申请" },
+        {
+          "action": "wait_ws",
+          "type": "friend_request",
+          "payload": {
+            "action": "reject",
+            "action_label": "拒绝"
+          },
+          "payload_present": ["session_id", "user_id", "device_id"],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "tts", "state": "start", "timeout_ms": 1500 },
+        { "action": "send_text", "text": "取消加好友" },
+        {
+          "action": "wait_ws",
+          "type": "friend_request",
+          "payload": {
+            "action": "cancel",
+            "action_label": "取消"
+          },
+          "payload_present": ["session_id", "user_id", "device_id"],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "tts", "state": "start", "timeout_ms": 1500 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}
