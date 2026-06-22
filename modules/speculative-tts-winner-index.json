@@ -1,0 +1,69 @@
+{
+  "id": "speculative-tts-winner-index",
+  "name": "投机 TTS 胜出索引",
+  "area": "TTS",
+  "version": "1.0.0",
+  "description": "验证三路投机在任一模型胜出时使用赢家本地 TTS 索引完成 stop，并且下一轮对话仍能正常下发 TTS start、音频和 complete stop。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.speculative-tts-winner-index-playback",
+      "label": "TTS · 投机赢家索引与下一轮播放",
+      "description": "发送普通闲聊触发三路投机，观察 winner_tts_index 与任一路胜出日志，并连续验证两轮都有 sentence_start、Binary 音频和 complete stop。若真实意图判定为 L2，则日志会同时留下 winner=l2 / l2_pass 证据。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "我有个有点复杂的选择想认真聊聊：如果一个人既想安静独处，又怕错过朋友的热闹，你觉得他该怎么判断自己真正想要什么？"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "speculative|begin",
+            "candidates=l0,l1,l2",
+            "speculative|winner_tts_index",
+            "winner_last_index=",
+            "tts_last_index="
+          ],
+          "any_keywords": [
+            "speculative|l0_pass",
+            "speculative|l1_pass",
+            "speculative|l2_pass"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "send_text",
+          "text": "接着刚才的话题，再用一句自然的话回应我，顺便确认你这一轮还能继续正常出声。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary"
+          ],
+          "min_matches": 2,
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "tts|playback_bookkeeping_reset"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

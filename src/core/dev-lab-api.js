@@ -111,6 +111,34 @@ export class DevLabApi {
     return body.data ?? body;
   }
 
+  async request(path, options = {}) {
+    const url = this.resolveRequestUrl(path);
+    const method = String(options.method || "GET").toUpperCase();
+    const headers = { Accept: "application/json", ...(options.headers || {}) };
+    const init = { method, headers };
+    if (options.body !== undefined) {
+      init.headers = { "Content-Type": "application/json", ...headers };
+      init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+    }
+
+    let response;
+    try {
+      response = await fetchWithTimeout(url, init, options.timeoutMs || options.timeout_ms || 8000);
+    } catch (error) {
+      throw buildApiError(error.message || "network error", { path, url, cause: error });
+    }
+    const contentType = response.headers.get("content-type") || "";
+    const body = contentType.includes("application/json")
+      ? await response.json().catch(() => ({}))
+      : await response.text().catch(() => "");
+    return {
+      ok: response.ok,
+      status: response.status,
+      url,
+      body
+    };
+  }
+
   async getJson(path) {
     const base = this.getBaseUrl().replace(/\/$/, "");
     let response;
@@ -131,6 +159,22 @@ export class DevLabApi {
       });
     }
     return body.data ?? body;
+  }
+
+  resolveRequestUrl(path) {
+    const rawPath = String(path || "");
+    if (/^https?:\/\//i.test(rawPath)) {
+      return rawPath;
+    }
+    const base = new URL(this.getBaseUrl().replace(/\/$/, ""), window.location.href);
+    if (rawPath.startsWith("/api/v1/")) {
+      const marker = "/api/v1/dev/ws-lab";
+      const markerIndex = base.pathname.indexOf(marker);
+      const envPrefix = markerIndex >= 0 ? base.pathname.slice(0, markerIndex) : "";
+      return `${base.origin}${envPrefix}${rawPath}`;
+    }
+    const suffix = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+    return `${base.href}${suffix}`;
   }
 }
 

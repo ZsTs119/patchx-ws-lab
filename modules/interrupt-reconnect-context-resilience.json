@@ -1,0 +1,93 @@
+{
+  "id": "interrupt-reconnect-context-resilience",
+  "name": "打断重连上下文韧性",
+  "area": "Core",
+  "version": "1.0.0",
+  "description": "验证服务端 recoverable peer_disconnect 不会立即清 Redis 对话历史，短时间同 identity 重连后能恢复上下文并继续 TTS 主流程。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.interrupt-reconnect-context-resilience",
+      "label": "异常断线 · 重连上下文恢复",
+      "description": "先发送一轮带可回忆关键词的文本，TTS 开始后通过 dev fault endpoint 触发 peer_disconnect 清理路径，随后同 device/user 重连并追问上下文，验证日志保留 Redis、恢复 raw history，并确认新一轮仍能下发 TTS 音频。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请记住一个验收关键词：蓝莓风铃。你先用一句话自然回应我。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        {
+          "action": "rest_request",
+          "method": "POST",
+          "path": "/api/v1/dev/ws-lab/faults/recoverable-peer-disconnect",
+          "body": {
+            "device_id": "{{device_id}}",
+            "user_id": "{{user_id}}",
+            "session_id": "{{session_id}}",
+            "reason": "peer_disconnect"
+          },
+          "expect_status": 200,
+          "expect_json": {
+            "code": 200,
+            "data.recoverable": true,
+            "data.reason": "peer_disconnect"
+          },
+          "expect_number_min": {
+            "data.matched": 1
+          },
+          "timeout_ms": 12000
+        },
+        { "action": "wait_ws", "direction": "system", "type": "socket", "timeout_ms": 8000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "transport_close|mark reason=peer_disconnect",
+            "recoverable_disconnect|retain_redis_history",
+            "exit_pipeline|recoverable_disconnect_skip_heavy"
+          ],
+          "timeout_ms": 60000
+        },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "post_hello_features|resumed_history"
+          ],
+          "timeout_ms": 60000
+        },
+        {
+          "action": "send_text",
+          "text": "刚刚我让你记住的验收关键词是什么？请用一句话回答，并继续正常出声。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "LLM上下文 round=2",
+            "content=请记住一个验收关键词：蓝莓风铃",
+            "content=刚刚我让你记住的验收关键词是什么"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "id": "asr-doubao-chunk-aggregation",
+  "name": "Doubao ASR 聚包",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 Doubao ASR 本地 180ms 聚包、listen:stop 有序 flush 和主流程 ASR/LLM/TTS 闭环。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-doubao-chunk-aggregation-stop-flush",
+      "label": "Doubao ASR 聚包与 stop flush",
+      "description": "使用 60ms PCM 上行真实语音，确认 Doubao 发包已聚合、listen:stop 触发有序 flush，且后续主流程仍能输出 TTS。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，我想测试一下豆包语音识别聚包是否正常。",
+          "duration_ms": 1320,
+          "trailing_silence_ms": 0,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "asr" },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "asr_chunk|send reason=threshold",
+            "asr_flush|listen_stop"
+          ],
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_flush|listen_stop queued_barrier=true",
+            "asr_flush|listen_stop fallback=direct",
+            "asr_flush|listen_stop flushed=true"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "id": "reconnect-resume-greeting",
+  "name": "断线恢复招呼",
+  "area": "重连",
+  "version": "1.0.0",
+  "description": "验证 raw history 恢复后可自动发起恢复招呼：不重新触发冷启动/开机引导 API，不发送用户文本也能收到 TTS，且本轮走 L0 快模型、注入 resume_greeting_observation、禁用运行时工具。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.reconnect-resume-greeting",
+      "label": "断线重连 · 恢复招呼",
+      "description": "前置条件：服务端开启 boot_greeting.resume_greeting.enabled=true，Redis raw history 可恢复，fast_llm 可用。场景先创建一轮可恢复历史，断开后同身份重连，hello 后不发送用户文本，期望恢复招呼自动播报。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "这是断线恢复招呼的验收消息，等会儿请自然接上。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "disconnect", "wait_ms": 800 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "resume_history|restored",
+            "post_hello_features|resumed_history skip_cold_start_and_boot_greeting",
+            "resume_greeting|round_start",
+            "resume_greeting|tool_observation_injected",
+            "fast_llm_on_demand.get",
+            "use_fast=true",
+            "tool_gate.skip: runtime tools disabled"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.reconnect-resume-greeting-user-first",
+      "label": "断线重连 · 用户先说话跳过恢复招呼",
+      "description": "验证恢复招呼延迟窗口内用户先发起对话时，恢复招呼无法抢占 IDLE→PROCESSING，不会额外再播一轮恢复招呼。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "这是用户先说话跳过恢复招呼的验收消息。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "disconnect", "wait_ms": 800 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "我先继续说，别自动插话。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "resume_history|restored"
+          ],
+          "any_keywords": [
+            "resume_greeting|skip_not_idle",
+            "resume_greeting|skip_round_changed",
+            "resume_greeting|skip_round_changed_after_cas"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

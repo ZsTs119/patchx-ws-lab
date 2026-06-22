@@ -1,11 +1,11 @@
 import { createIdentity, createUuid, inferRoleFromDeviceId, ROLE_CODES } from "./core/identity-factory.js";
-import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-engine.js";
+import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-engine.js?v=20260622-gc-goodbye1";
 import { DownlinkAudioPlayer } from "./core/downlink-audio-player.js";
 import { DevLabApi } from "./core/dev-lab-api.js";
-import { eventText, ProtocolStore } from "./core/protocol-store.js";
+import { eventText, ProtocolStore } from "./core/protocol-store.js?v=20260616-tts-pacing1";
 import { ModuleHost } from "./core/module-host.js?v=20260526-ja-tts-split2";
-import { ScenarioRunner } from "./core/scenario-runner.js";
-import { WsClient } from "./core/ws-client.js";
+import { ScenarioRunner } from "./core/scenario-runner.js?v=20260622-gc-goodbye1";
+import { WsClient } from "./core/ws-client.js?v=20260622-gc-goodbye1";
 import { WsLabAuthApi } from "./core/ws-lab-auth-api.js";
 import { enhanceFilePickers } from "./ui/file-picker.js";
 import { activateTab, bindTabs } from "./ui/tabs.js";
@@ -414,6 +414,9 @@ const scenarioRunner = new ScenarioRunner({
     stopMic: () => stopMicInput(),
     unlockPlayback: () => unlockDownlinkPlayback(),
     getPlaybackStats: () => downlinkAudioPlayer?.stats(),
+    getConversationText: () => dom.conversationList?.textContent || "",
+    getConnectionState: () => dom.connectionPill?.dataset.state || "idle",
+    ensureWsReadyForScenarioSend: () => ensureWsReadyForUserSend("", { source: "scenario", preserveInput: true }),
     streamSilence: (durationMs) => streamScenarioSilence(durationMs),
     streamGeneratedTts: (text, options) => streamScenarioGeneratedTts(text, options)
   }
@@ -459,6 +462,9 @@ const state = {
   hasNewRounds: false,
   roundDetailCards: [],
   pendingExpectedInputTexts: [],
+  connectionLifecycle: createConnectionLifecycle(),
+  lastBusinessActiveAt: 0,
+  reconnectPromise: null,
   authProfile: null,
   authStarted: false,
   authMode: "external",
@@ -530,6 +536,7 @@ async function init() {
   commitCapabilities(state.capabilities, { preserveCheckedAt: true });
   store.subscribe(handleStoreUpdate);
   wsClient.onStateChange = updateConnectionState;
+  wsClient.onLifecycle = handleWsLifecycle;
   wsClient.onSession = (sessionId) => {
     dom.sessionIdLabel.textContent = sessionId;
     dom.clientSessionLabel.textContent = shortText(sessionId);
@@ -557,6 +564,7 @@ function startAuthenticatedRuntime() {
     if (!state.roundPaused && dom.roundView && !dom.roundView.hidden) {
       refreshRounds({ silent: true });
     }
+    renderOverview();
   }, 8000);
   probeEnvironmentCapabilities({ silent: true, force: true })
     .finally(() => loadModules().then(() => maybeRunUrlAutomation()));
@@ -766,6 +774,9 @@ function resetRuntimeSession(reason = "runtime_reset") {
   state.activePlaybackProfile = null;
   state.recentConversationKeys = [];
   state.pendingExpectedInputTexts = [];
+  state.connectionLifecycle = createConnectionLifecycle(reason);
+  state.lastBusinessActiveAt = 0;
+  state.reconnectPromise = null;
   for (const record of state.activeTtsConversationRecords.values()) {
     cancelTtsTypewriter(record);
   }
@@ -804,6 +815,125 @@ function resetRuntimeSession(reason = "runtime_reset") {
   renderInspectorContext();
   renderChainTimeline();
   renderOverview();
+}
+
+function createConnectionLifecycle(reason = "") {
+  return {
+    status: "idle",
+    reason,
+    receivedGoodbye: false,
+    farewellText: "",
+    endedAt: "",
+    userInitiated: false,
+    closeCode: "",
+    closeReason: ""
+  };
+}
+
+function resetConnectionLifecycle(reason = "connect") {
+  state.connectionLifecycle = createConnectionLifecycle(reason);
+}
+
+function handleWsLifecycle(kind, detail = {}) {
+  if (kind === "disconnect") {
+    if (detail.silent) return;
+    if (detail.userInitiated) {
+      state.connectionLifecycle = {
+        ...createConnectionLifecycle(detail.reason || "user_disconnect"),
+        status: "manual",
+        userInitiated: true
+      };
+    }
+    return;
+  }
+
+  if (kind === "goodbye") {
+    const payload = detail.payload || {};
+    const reason = lifecycleReasonFromPayload(payload);
+    state.connectionLifecycle = {
+      ...state.connectionLifecycle,
+      status: "ended",
+      reason,
+      receivedGoodbye: true,
+      userInitiated: false,
+      farewellText: lifecycleFarewellText(payload) || state.connectionLifecycle.farewellText || "",
+      endedAt: new Date().toISOString()
+    };
+    finishActiveTtsConversations("complete");
+    updateConnectionState("ended");
+    renderOverview();
+    return;
+  }
+
+  if (kind === "close") {
+    if (detail.silent) return;
+    const receivedGoodbye = Boolean(detail.goodbye || state.connectionLifecycle.receivedGoodbye);
+    if (receivedGoodbye && !detail.userInitiated) {
+      state.connectionLifecycle = {
+        ...state.connectionLifecycle,
+        status: "ended",
+        reason: state.connectionLifecycle.reason || lifecycleReasonFromPayload(detail.goodbye || {}),
+        receivedGoodbye: true,
+        userInitiated: false,
+        closeCode: detail.code || "",
+        closeReason: detail.reason || "",
+        endedAt: state.connectionLifecycle.endedAt || new Date().toISOString()
+      };
+      finishActiveTtsConversations("complete");
+    } else if (detail.userInitiated) {
+      state.connectionLifecycle = {
+        ...createConnectionLifecycle(detail.disconnectReason || "user_disconnect"),
+        status: "manual",
+        userInitiated: true,
+        closeCode: detail.code || "",
+        closeReason: detail.reason || ""
+      };
+    } else {
+      state.connectionLifecycle = {
+        ...state.connectionLifecycle,
+        status: "closed",
+        closeCode: detail.code || "",
+        closeReason: detail.reason || "",
+        endedAt: new Date().toISOString()
+      };
+      finishActiveTtsConversations("ended");
+    }
+    renderOverview();
+  }
+}
+
+function lifecycleReasonFromPayload(payload = {}) {
+  return String(payload.exit_reason || payload.reason || payload.close_reason || "").trim();
+}
+
+function lifecycleFarewellText(payload = {}) {
+  return String(payload.farewell_text || payload.display_message || payload.message || "").trim();
+}
+
+function lifecycleReasonLabel(reason = state.connectionLifecycle.reason) {
+  return ({
+    gc_timeout: "服务端因 5 分钟无业务输入回收连接",
+    idle_timeout: "服务端因空闲超时结束会话",
+    normal_exit: "服务端已正常结束会话",
+    mcp_exit: "工具流程已结束会话",
+    client_close: "客户端已关闭会话",
+    connection_closed: "服务端已结束会话"
+  })[reason] || "服务端已结束会话";
+}
+
+function lifecycleEndedByServer() {
+  return state.connectionLifecycle.status === "ended" && !state.connectionLifecycle.userInitiated;
+}
+
+function lifecycleManualDisconnect() {
+  return state.connectionLifecycle.status === "manual" && state.connectionLifecycle.userInitiated;
+}
+
+function markBusinessActive(reason = "business") {
+  state.lastBusinessActiveAt = Date.now();
+  if (state.connectionLifecycle.status !== "ended") {
+    state.connectionLifecycle.reason = reason;
+  }
 }
 
 function applyAuthProfile() {
@@ -1064,7 +1194,7 @@ async function applyMobileEndpoint(endpointId) {
   if (!config) return;
   const shouldReconnect = Boolean(wsClient.isConnected);
   if (shouldReconnect) {
-    wsClient.disconnect();
+    wsClient.disconnect({ silent: true, reason: "endpoint_switch" });
   }
   applyEndpointConfig(config);
   updateHelloPreview();
@@ -1322,7 +1452,7 @@ function bindEvents() {
     const playbackUnlock = enableDownlinkPlaybackFromGesture("connect", { silent: true, allowUnmute: true });
     void connectAndHello({ playbackUnlock });
   });
-  dom.disconnectBtn.addEventListener("click", () => wsClient.disconnect());
+  dom.disconnectBtn.addEventListener("click", () => wsClient.disconnect({ userInitiated: true }));
   dom.copyHelloBtn.addEventListener("click", copyHelloJson);
   dom.expandHelloBtn.addEventListener("click", openHelloDialog);
   dom.resetHelloBtn.addEventListener("click", resetHelloOptions);
@@ -1377,7 +1507,7 @@ function bindEvents() {
   dom.copyScenarioBtn.addEventListener("click", copySelectedScenario);
   dom.importScenarioBtn.addEventListener("click", importScenario);
   dom.streamWavBtn.addEventListener("click", streamSelectedWav);
-  dom.startSilenceBtn.addEventListener("click", () => runAudioAction(() => audioStreamer.startSilence()));
+  dom.startSilenceBtn.addEventListener("click", () => runAudioAction(() => startSilenceInput()));
   dom.pauseSilenceBtn.addEventListener("click", () => audioStreamer.pause());
   dom.resumeSilenceBtn.addEventListener("click", () => audioStreamer.resume());
   dom.stopAudioBtn.addEventListener("click", () => audioStreamer.stop());
@@ -2661,12 +2791,49 @@ async function openWsAndSendHello(options = {}) {
     await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
   }
   downlinkAudioPlayer?.clear("connect", { keepUnlocked: true });
+  resetConnectionLifecycle("connect");
   await wsClient.connect(wsUrl, identity);
   wsClient.sendJson(buildHello());
+  markBusinessActive("hello");
   state.activeAudioProfile = getDraftAudioProfile();
   state.activePlaybackProfile = getDraftPlaybackProfile();
   updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
   saveState();
+}
+
+async function ensureWsReadyForUserSend(label = "send", options = {}) {
+  if (!lifecycleEndedByServer() && wsClient.isConnected) {
+    return true;
+  }
+  if (state.reconnectPromise) {
+    await state.reconnectPromise;
+    await waitForActiveSession(options.timeoutMs || 12000);
+    return true;
+  }
+  const canReconnect = lifecycleEndedByServer() || state.connectionLifecycle.status === "closed" || options.autoReconnect;
+  if (!canReconnect || lifecycleManualDisconnect()) {
+    throw new Error("WebSocket 尚未连接，请先连接后再发送");
+  }
+  store.add({
+    direction: "system",
+    type: "socket",
+    label: "正在重新连接",
+    payload: {
+      reason: state.connectionLifecycle.reason || "server_closed",
+      source: options.source || label
+    }
+  });
+  state.reconnectPromise = openWsAndSendHello({
+    unlockPlayback: false,
+    unlockReason: options.unlockReason || "reconnect"
+  });
+  try {
+    await state.reconnectPromise;
+    await waitForActiveSession(options.timeoutMs || 12000);
+    return true;
+  } finally {
+    state.reconnectPromise = null;
+  }
 }
 
 async function sendText(options = {}) {
@@ -2684,7 +2851,9 @@ async function sendText(options = {}) {
     } else if (unlockPlayback) {
       await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
     }
+    await ensureWsReadyForUserSend("text", { source: "text", unlockReason });
     wsClient.sendTextListen(text, wsClient.sessionId);
+    markBusinessActive("text");
     rememberExpectedInputText(text, 8000);
     dom.textMessageInput.value = "";
     autoResizeComposer();
@@ -3656,14 +3825,13 @@ async function streamSelectedWav() {
     return;
   }
   await runAudioAction(async () => {
-    if (wsClient.isConnected) {
-      const profile = ensureActiveAudioProfile();
-      addAudioInputCue({
-        source: "wav",
-        label: "客户端 WAV",
-        text: `${file.name} · ${formatAudioProfile(profile)} · 等待 ASR 识别`
-      });
-    }
+    await ensureWsReadyForUserSend("wav", { source: "wav" });
+    const profile = ensureActiveAudioProfile();
+    addAudioInputCue({
+      source: "wav",
+      label: "客户端 WAV",
+      text: `${file.name} · ${formatAudioProfile(profile)} · 等待 ASR 识别`
+    });
     await audioStreamer.streamFile(file);
   });
 }
@@ -3717,6 +3885,7 @@ function markScenarioHelloSent() {
 }
 
 async function streamScenarioSilence(durationMs) {
+  await ensureWsReadyForUserSend("silence", { source: "scenario_silence" });
   audioStreamer.startSilence();
   await delay(durationMs);
   audioStreamer.stop();
@@ -3725,6 +3894,7 @@ async function streamScenarioSilence(durationMs) {
 }
 
 async function streamScenarioGeneratedTts(text, options = {}) {
+  await ensureWsReadyForUserSend("stream_tts", { source: "scenario_stream_tts" });
   const profile = ensureActiveAudioProfile();
   const requestedText = String(text || "").trim();
   if (!requestedText) {
@@ -3788,6 +3958,7 @@ async function generateAndStreamTts() {
     return;
   }
   await runAudioAction(async () => {
+    await ensureWsReadyForUserSend("generate_tts", { source: "generate_tts" });
     const profile = ensureActiveAudioProfile();
     const requestedText = dom.ttsTextInput.value.trim();
     audioStreamer.reserve("generating");
@@ -3847,6 +4018,7 @@ async function generateAndStreamTts() {
 
 async function startMicInput(options = {}) {
   const action = async () => {
+    await ensureWsReadyForUserSend("mic", { source: "mic" });
     await audioStreamer.startMic();
     addAudioInputCue({
       source: "mic",
@@ -3859,6 +4031,11 @@ async function startMicInput(options = {}) {
     return;
   }
   await runAudioAction(action);
+}
+
+async function startSilenceInput() {
+  await ensureWsReadyForUserSend("silence", { source: "silence" });
+  audioStreamer.startSilence();
 }
 
 async function toggleMicInput() {
@@ -4549,12 +4726,20 @@ function renderScenarioSteps(steps = []) {
 }
 
 function handleStoreUpdate(event) {
+  updateBusinessActivityFromEvent(event);
   handleDownlinkAudioEvent(event);
   renderMetrics();
   renderInspectorContext();
   renderChainTimeline();
   if (event) {
     appendConversation(event);
+  }
+}
+
+function updateBusinessActivityFromEvent(event) {
+  if (!event || event.direction !== "client" || !event.payload || typeof event.payload !== "object") return;
+  if (event.payload.type === "listen") {
+    markBusinessActive(event.payload.state || "listen");
   }
 }
 
@@ -4711,6 +4896,8 @@ function renderOverview() {
   if (roundSummary.missing_count) bottlenecks.push(`缺失证据 ${roundSummary.missing_count}`);
   if (roundSummary.unknown_count) bottlenecks.push(`未归属 ${roundSummary.unknown_count}`);
   if (state.hasNewRounds) bottlenecks.push("有新轮次待查看");
+  const lifecycleHint = connectionLifecycleHint();
+  if (lifecycleHint) bottlenecks.push(lifecycleHint);
   if (!bottlenecks.length) bottlenecks.push(summary.server ? "链路已有服务端反馈" : "等待服务端反馈");
   renderOverviewHealth(summary, current);
   dom.overviewSummary.innerHTML = `
@@ -4732,14 +4919,31 @@ function renderOverview() {
   }
 }
 
+function connectionLifecycleHint(now = Date.now()) {
+  if (state.connectionLifecycle.status === "ended") {
+    return `${lifecycleReasonLabel(state.connectionLifecycle.reason)} · 需重连`;
+  }
+  if (state.connectionLifecycle.status === "manual") {
+    return "用户已断开连接";
+  }
+  const connectionState = dom.connectionPill?.dataset.state || "idle";
+  if (connectionState !== "connected" || !state.lastBusinessActiveAt) return "";
+  const idleMs = now - state.lastBusinessActiveAt;
+  if (idleMs >= 240000) {
+    return `业务空闲 ${Math.floor(idleMs / 1000)}s · 接近 5 分钟回收`;
+  }
+  return "";
+}
+
 function renderOverviewHealth(summary = store.summary(), current = currentRound()) {
   if (!dom.overviewHealth) return;
   const connectionState = dom.connectionPill?.dataset.state || "idle";
   const logState = isCapabilityOk("logs") ? "ok" : state.capabilities.logs.status;
   const roundState = current ? "ok" : state.rounds.length ? "warn" : state.capabilities.rounds.status;
+  const wsState = connectionState === "connected" ? "ok" : connectionState === "error" ? "error" : connectionState === "ended" ? "warn" : "unknown";
   const cards = [
     { label: "REST", state: state.healthStatus.rest, value: state.healthStatus.message },
-    { label: "WS", state: connectionState === "connected" ? "ok" : connectionState === "error" ? "error" : "unknown", value: displayConnectionState(connectionState) },
+    { label: "WS", state: wsState, value: displayConnectionState(connectionState) },
     { label: "日志", state: logState, value: state.roundLogFile || state.capabilities.logs.message || "等待扫描 server.log" },
     { label: "轮次", state: roundState, value: current ? roundTitle(current) : state.rounds.length ? `${state.rounds.length} 轮` : state.capabilities.rounds.message }
   ];
@@ -5234,6 +5438,17 @@ function conversationMessage(event) {
     return { kind: "client", label: "客户端 LISTEN", text: event.payload.text };
   }
   if (event.direction === "server" && event.payload && typeof event.payload === "object") {
+    if (event.payload.type === "goodbye") {
+      return {
+        kind: "system",
+        label: "会话结束",
+        text: lifecycleConversationText(event.payload),
+        source: "lifecycle",
+        suppressDuplicate: true,
+        dedupeKey: `lifecycle-goodbye:${lifecycleReasonFromPayload(event.payload) || "server"}`,
+        dedupeTtlMs: 60000
+      };
+    }
     if (event.payload.type === "stt") {
       const text = finalReadableText(event.payload);
       if (!text || consumeExpectedInputText(text)) return null;
@@ -5248,7 +5463,25 @@ function conversationMessage(event) {
       };
     }
   }
+  if (event.direction === "system" && event.type === "socket" && state.connectionLifecycle.status === "closed") {
+    return {
+      kind: "system",
+      label: "连接已断开",
+      text: "WebSocket 已断开，请重新连接后继续。",
+      source: "lifecycle",
+      suppressDuplicate: true,
+      dedupeKey: "lifecycle-close",
+      dedupeTtlMs: 60000
+    };
+  }
   return null;
+}
+
+function lifecycleConversationText(payload = {}) {
+  const reason = lifecycleReasonFromPayload(payload) || state.connectionLifecycle.reason;
+  const farewell = lifecycleFarewellText(payload);
+  const ending = `${lifecycleReasonLabel(reason)}，请重新连接后继续。`;
+  return farewell ? `${farewell}\n${ending}` : ending;
 }
 
 function finalReadableText(payload) {
@@ -5264,6 +5497,7 @@ function updateConnectionState(stateName) {
     idle: "未连接",
     connecting: "连接中",
     connected: "已连接",
+    ended: "会话结束",
     error: "异常"
   };
   dom.connectionPill.dataset.state = stateName;
@@ -5285,8 +5519,8 @@ function updateConnectionState(stateName) {
 async function handleQuickConnectionAction() {
   const stateName = dom.connectionPill?.dataset.state || "idle";
   if (stateName === "connecting") return;
-  if (stateName === "connected" || wsClient.isConnected) {
-    wsClient.disconnect();
+  if (stateName === "connected" || (wsClient.isConnected && stateName !== "ended")) {
+    wsClient.disconnect({ userInitiated: true });
     return;
   }
   probeEnvironmentCapabilities({ silent: true, force: true });
@@ -5300,6 +5534,7 @@ function updateQuickConnectionButton(stateName = "idle") {
     idle: "连接",
     connecting: "连接中",
     connected: "断开",
+    ended: "重连",
     error: "重试"
   };
   dom.quickConnectBtn.dataset.state = stateName;
@@ -5897,8 +6132,9 @@ function classifyEventPhase(event) {
   if (String(type).includes("mcp") || String(type).includes("tool")) return "工具";
   if (String(type).includes("llm")) return "LLM";
   if (type === "tts") return "TTS";
+  if (type === "goodbye") return "生命周期";
   if (String(type).includes("latency")) return "延迟";
-  if (event?.error || type === "goodbye" || String(type).includes("error")) return "错误";
+  if (event?.error || String(type).includes("error")) return "错误";
   if (event?.kind === "binary" || type === "audio") return "下发";
   return "连接";
 }
@@ -6056,6 +6292,9 @@ function displayEventBody(event) {
   if (payload.type === "tts" || payload.type === "stt") {
     return [payload.state, payload.text || payload.sentence || payload.message].filter(Boolean).join(" · ") || eventText(event);
   }
+  if (payload.type === "goodbye") {
+    return [lifecycleReasonLabel(lifecycleReasonFromPayload(payload)), payload.session_id ? `会话 ${shortText(payload.session_id)}` : ""].filter(Boolean).join(" · ");
+  }
   if (payload.type === "interrupt") {
     const session = payload.session_id ? `会话 ${shortText(payload.session_id)}` : "等待会话";
     return ["请求打断当前播放", session].filter(Boolean).join(" · ");
@@ -6096,6 +6335,7 @@ function displayConnectionState(stateName) {
     idle: "未连接",
     connecting: "连接中",
     connected: "已连接",
+    ended: "会话结束",
     error: "异常"
   })[stateName] || stateName;
 }
@@ -6110,7 +6350,11 @@ function displayStepName(name) {
     send_text: "发送文本",
     wait_ws: "等待服务端消息",
     expect_no_ws: "反向断言",
+    expect_conversation_contains: "检查对话文本",
+    expect_connection_state: "检查连接状态",
     expect_binary: "等待音频帧",
+    mark_binary_cadence: "标记音频节奏",
+    expect_binary_cadence: "检查音频节奏",
     log_summary: "日志分析",
     connect_ws: "连接 WS",
     connect_hello: "连接并握手",

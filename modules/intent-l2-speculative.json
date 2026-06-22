@@ -1,0 +1,71 @@
+{
+  "id": "intent-l2-speculative",
+  "name": "L2 三路投机",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证普通闲聊投机轮次同时启动 L0/L1/L2 三路候选，L2 使用独立 l2_llm 池、L2 prompt 和候选工具拼接，并在最终任一路胜出后正常完成 TTS。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.intent-l2-three-way-speculative",
+      "label": "意图 · L2 三路投机",
+      "description": "普通闲聊触发三路投机时，应启动 L0/L1/L2 候选；L2 候选必须借用 l2_llm 池、替换 L2 prompt、执行候选工具门控，并在 L0/L1/L2 任一路胜出后完成一轮 TTS。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "嘿嘿，我今天想轻松聊两句，你用一句自然的话陪我一下就好。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "speculative|begin",
+            "candidates=l0,l1,l2",
+            "l2_llm|borrow",
+            "candidate_prompt_swap",
+            "source=l2",
+            "tool_gate.candidate_tools source=l2"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|v2_intent_ok",
+            "\"label\":\"普通闲聊\""
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "speculative|l0_pass",
+            "speculative|l1_pass",
+            "speculative|l2_pass",
+            "l2_llm|done",
+            "l2_llm|context_done",
+            "取消L2 LLM流"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary",
+            "selected_model"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

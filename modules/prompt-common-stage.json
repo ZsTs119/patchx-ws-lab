@@ -1,0 +1,41 @@
+{
+  "id": "prompt-common-stage",
+  "name": "Stage 通用 Prompt",
+  "area": "提示词",
+  "version": "1.0.0",
+  "description": "验证 /test WebSocket 能对当前 stage 注入 common_prompt，并在 prompt 覆盖日志中留下 request-scoped effective.common_prompt 证据。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.prompt-common-stage-override",
+      "label": "提示词 · Stage common_prompt 覆盖",
+      "description": "连接本地 /test WebSocket，临时覆盖 L0/L1/L2/common prompt，确认 common_prompt 进入本次请求的 effective stage 配置，并写入 WS Lab 日志证据。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "connect_ws",
+          "path": "/test",
+          "query": {
+            "l0_prompt": "WSLAB_L0_PROMPT_ONLY",
+            "l1_prompt": "WSLAB_L1_PROMPT_ONLY",
+            "l2_prompt": "WSLAB_L2_PROMPT_ONLY",
+            "common_prompt": "WSLAB_COMMON_PROMPT_ONLY"
+          }
+        },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "ws_lab_prompt_override",
+            "effective.common_prompt=WSLAB_COMMON_PROMPT_ONLY"
+          ],
+          "timeout_ms": 20000
+        },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    }
+  ]
+}

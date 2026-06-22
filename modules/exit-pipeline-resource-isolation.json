@@ -1,0 +1,53 @@
+{
+  "id": "exit-pipeline-resource-isolation",
+  "name": "退出后台任务资源隔离",
+  "area": "Core",
+  "version": "1.0.0",
+  "description": "验证正常断开触发退出后台任务后，重连主流程仍能正常完成 ASR/LLM/TTS，同时日志留下退出重型阶段 gate 证据。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.exit-pipeline-background-main-flow",
+      "label": "退出后台任务 · 主流程不阻塞",
+      "description": "完成一轮文本到 TTS 后正常断开，立即同身份重连并发送新文本，验证新会话仍能出声；日志确认 exit pipeline 已启动并通过 heavy gate 进入重型阶段。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请用两句话自然回应我，内容稍微完整一点，方便我验证退出后台任务。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        { "action": "disconnect", "wait_ms": 500 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "我刚刚重连回来，请用一句话确认你还能继续正常出声。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "log_scope": "trace",
+          "keywords": [
+            "exit_pipeline|start",
+            "exit_pipeline|heavy_gate_acquired",
+            "latency_round_summary"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

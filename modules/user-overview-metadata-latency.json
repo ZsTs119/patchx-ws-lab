@@ -1,0 +1,58 @@
+{
+  "id": "user-overview-metadata-latency",
+  "name": "用户概览 Metadata 延迟字段",
+  "area": "用户概览",
+  "version": "1.0.0",
+  "description": "验证 /user_overview/{user_id} 会透传 assistant metadata 中的模型胜出、意图耗时和 LLM 延迟摘要字段。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.user-overview-metadata-latency",
+      "label": "用户概览 · assistant metadata 延迟字段",
+      "description": "触发一轮普通闲聊三路投机并完成 TTS 后，查询 /api/v1/user_overview/{user_id}，验证 assistant metadata 透传 selected_model、intent_ms、llm_ttft_ms 等 A 方案字段。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "嘿嘿，我今天想轻松聊两句，你用一句自然的话陪我一下就好。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary",
+            "selected_model"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "wait", "ms": 2500 },
+        {
+          "action": "rest_request",
+          "method": "GET",
+          "path": "/api/v1/user_overview/{{user_id}}?limit=10&days=1",
+          "expect_status": 200,
+          "expect_json": {
+            "code": 200
+          },
+          "expect_body_contains": [
+            "\"role\":\"assistant\"",
+            "\"selected_model\"",
+            "\"spec_state_final\"",
+            "\"intent_ms\"",
+            "\"llm_ttft_ms\"",
+            "\"llm_model_ms\""
+          ],
+          "timeout_ms": 20000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

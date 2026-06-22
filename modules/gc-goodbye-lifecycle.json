@@ -1,0 +1,81 @@
+{
+  "id": "gc-goodbye-lifecycle",
+  "name": "GC Goodbye 生命周期",
+  "area": "重连",
+  "version": "1.0.0",
+  "description": "验证服务端业务空闲 GC 触发优雅退出时，WS Lab 能展示告别/结束状态，并在后续文本或生成语音推流前完成重连保护。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.gc-goodbye-lifecycle-slow",
+      "label": "GC 回收 · goodbye 生命周期（慢速）",
+      "description": "真实环境使用 websocket_gc.stale_timeout=300s，场景会等待 5 分钟以上；本地快速验收可临时把 stale_timeout 调短后运行同一场景。",
+      "stability": "manual",
+      "suite": "diagnostic",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "这是 GC 生命周期验收消息，请用一句话回复。"
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload_text_non_empty": true,
+          "timeout_ms": 30000
+        },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait", "timeout_ms": 310000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload_text_non_empty": true,
+          "timeout_ms": 30000
+        },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait_ws", "type": "goodbye", "timeout_ms": 20000 },
+        {
+          "action": "expect_conversation_contains",
+          "any_texts": [
+            "服务端已结束会话",
+            "服务端因 5 分钟无业务输入回收连接",
+            "回帕奇星系"
+          ],
+          "timeout_ms": 5000
+        },
+        { "action": "expect_connection_state", "one_of": ["ended", "connected"], "timeout_ms": 5000 },
+        {
+          "action": "send_text",
+          "text": "这是 GC 后重连发送验收，请继续回复一句话。"
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload_text_non_empty": true,
+          "timeout_ms": 30000
+        },
+        {
+          "action": "stream_tts",
+          "text": "这是 goodbye 后生成语音推流验收。",
+          "require_speech": false,
+          "min_outbound_binary": 1,
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "触发优雅退出: reason=gc_timeout",
+            "播放固定告别语",
+            "TTS音频已投递给网关，准备发送goodbye消息"
+          ],
+          "timeout_ms": 90000,
+          "log_scope": "user"
+        }
+      ]
+    }
+  ]
+}

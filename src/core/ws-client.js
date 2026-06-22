@@ -5,6 +5,10 @@ export class WsClient {
     this.sessionId = "";
     this.onStateChange = () => {};
     this.onSession = () => {};
+    this.onLifecycle = () => {};
+    this.lastServerGoodbye = null;
+    this.lastCloseEvent = null;
+    this.lastDisconnectIntent = null;
   }
 
   get readyState() {
@@ -17,9 +21,12 @@ export class WsClient {
 
   async connect(baseUrl, identity = {}) {
     if (this.socket && this.readyState !== WebSocket.CLOSED) {
-      this.disconnect();
+      this.disconnect({ silent: true, reason: "replace_connection" });
     }
 
+    this.lastServerGoodbye = null;
+    this.lastCloseEvent = null;
+    this.lastDisconnectIntent = null;
     const url = buildConnectionUrl(baseUrl, identity);
     this.onStateChange("connecting");
 
@@ -49,17 +56,38 @@ export class WsClient {
 
       socket.onclose = (event) => {
         window.clearTimeout(timeout);
+        const closeInfo = {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          userInitiated: Boolean(this.lastDisconnectIntent?.userInitiated),
+          disconnectReason: this.lastDisconnectIntent?.reason || "",
+          silent: Boolean(this.lastDisconnectIntent?.silent),
+          session_id: this.sessionId || "",
+          goodbye: this.lastServerGoodbye?.payload || null
+        };
+        this.lastCloseEvent = closeInfo;
+        this.onLifecycle("close", closeInfo);
         this.store.add({
           direction: "system",
           type: "socket",
           label: "已断开",
-          payload: { code: event.code, reason: event.reason }
+          payload: closeInfo
         });
-        this.onStateChange(event.wasClean ? "idle" : "error");
+        this.sessionId = "";
+        if (this.lastServerGoodbye && !closeInfo.userInitiated) {
+          this.onStateChange("ended");
+        } else {
+          this.onStateChange(event.wasClean ? "idle" : "error");
+        }
       };
 
       socket.onmessage = async (messageEvent) => {
         const event = await this.normalizeMessage(messageEvent.data);
+        if (event.payload?.type === "goodbye") {
+          this.lastServerGoodbye = event;
+          this.onLifecycle("goodbye", event);
+        }
         this.store.add(event);
         if (event.payload?.type === "hello" && event.payload.session_id) {
           this.sessionId = event.payload.session_id;
@@ -70,6 +98,13 @@ export class WsClient {
   }
 
   disconnect(options = {}) {
+    this.lastDisconnectIntent = {
+      userInitiated: Boolean(options.userInitiated),
+      reason: options.reason || (options.userInitiated ? "user_disconnect" : "disconnect"),
+      silent: Boolean(options.silent),
+      at: new Date().toISOString()
+    };
+    this.onLifecycle("disconnect", this.lastDisconnectIntent);
     if (this.socket) {
       if (options.silent) {
         this.socket.onclose = null;

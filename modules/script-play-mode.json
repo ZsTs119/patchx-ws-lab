@@ -1,0 +1,133 @@
+{
+  "id": "script-play-mode",
+  "name": "剧本演绎模式",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证 Intent V2 剧本演绎模式的开始、继续、active 路由优先级和退出收口。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.script-play-mode-start-next-exit",
+      "label": "剧本 · 开始继续退出",
+      "description": "触发剧本演绎模式后，应调用 script_start；下一轮调用 script_next；退出剧本应清空 active state。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "我们玩个剧本杀吧，随机来一本。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|start_request",
+            "script_play|start_ok",
+            "intent|tool_observation_injected",
+            "script_play_api"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "send_text",
+          "text": "我先观察周围，再检查桌子下面有没有线索。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|next_request",
+            "script_play|next_ok"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "send_text",
+          "text": "退出剧本，回到普通聊天。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|exit",
+            "script_play|state_clear"
+          ],
+          "timeout_ms": 15000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.script-play-mode-active-overrides-food",
+      "label": "剧本 · Active 压住美食意图",
+      "description": "剧本 active 后发送美食推荐话术，即使命中普通业务意图，也应继续调用 script_next。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "开始一个剧本杀，随机剧本就行。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|start_ok"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "send_text",
+          "text": "附近有什么适合现在吃的美食，推荐两家。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|active_override",
+            "script_play|next_request"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|next_ok"
+          ],
+          "timeout_ms": 15000
+        },
+        {
+          "action": "send_text",
+          "text": "退出剧本"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "script_play|exit",
+            "script_play|state_clear"
+          ],
+          "timeout_ms": 15000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "id": "memory-reset-generation-barrier",
+  "name": "记忆重置 generation 屏障",
+  "area": "记忆",
+  "version": "1.0.0",
+  "description": "验证 /api/v1/user/{user_id}/memory/reset 的在线拒绝、离线清理响应、generation 字段和 reset 后重新连接行为。用于覆盖断开连接后后台 user_summary / long_memory / insight / persona 旧任务不应回写记忆的修复语义。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.memory-reset-generation-barrier",
+      "label": "记忆重置 · generation 屏障",
+      "description": "先保持用户在线调用 reset，期望 409；随后断开连接后立即调用 reset，期望 200 且响应包含 generation、Redis 清理详情、聊天记录/记忆相关 PostgreSQL 删除计数；最后同 user_id 重连并 hello 成功。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "rest_request",
+          "method": "DELETE",
+          "path": "/api/v1/user/{{user_id}}/memory/reset",
+          "expect_status": 409,
+          "expect_json": {
+            "success": false,
+            "user_id": "{{user_id}}"
+          },
+          "expect_body_contains": "online",
+          "timeout_ms": 12000
+        },
+        { "action": "disconnect", "wait_ms": 1200 },
+        {
+          "action": "rest_request",
+          "method": "DELETE",
+          "path": "/api/v1/user/{{user_id}}/memory/reset",
+          "expect_status": 200,
+          "expect_json": {
+            "success": true,
+            "user_id": "{{user_id}}"
+          },
+          "expect_fields": [
+            "generation",
+            "deleted_at",
+            "redis.generation_key",
+            "redis.deleted_keys",
+            "redis.queue_jobs_removed",
+            "postgres.user_memories",
+            "postgres.user_memory_history",
+            "postgres.user_memory_stats",
+            "postgres.user_long_memories",
+            "postgres.user_long_profile_insights",
+            "postgres.user_long_personas",
+            "postgres.chat_attachments",
+            "postgres.chat_statistics",
+            "postgres.chat_messages",
+            "postgres.chat_sessions"
+          ],
+          "expect_number_min": {
+            "generation": 1
+          },
+          "expect_string_contains": {
+            "redis.generation_key": "{{user_id}}"
+          },
+          "timeout_ms": 20000
+        },
+        { "action": "wait", "ms": 1500 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "error", "payload": { "code": "memory_reset_in_progress" }, "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

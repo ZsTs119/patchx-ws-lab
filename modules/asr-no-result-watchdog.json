@@ -1,0 +1,55 @@
+{
+  "id": "asr-no-result-watchdog",
+  "name": "ASR 无结果看门狗",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 ASR no-result watchdog 接入后，正常语音输入不会误触发失败通知，且 ASR/LLM/TTS 主流程仍能闭环。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-no-result-watchdog-normal-audio",
+      "label": "ASR · 无结果看门狗正常语音闭环",
+      "description": "使用服务端 TTS 生成真实上行语音，验证 ASR 有 stt、服务端有 TTS 下行、看门狗健康日志存在且未产生 service_status 失败。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，我想确认一下语音输入还能正常被你听见。",
+          "duration_ms": 1800,
+          "trailing_silence_ms": 1600,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "asr_no_result|health_reset",
+            "asr_generation|bind"
+          ],
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "asr_release.listen_stop"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

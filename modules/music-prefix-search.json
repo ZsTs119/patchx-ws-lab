@@ -1,0 +1,88 @@
+{
+  "id": "music-prefix-search",
+  "name": "音乐检索前缀隔离",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证 Intent V2 音乐指定歌名只按当前设备人格前缀检索，短词点歌有可解释日志，未命中时走兜底而不跨人格。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.music-prefix-search-birthday",
+      "label": "音乐 · 当前人格生日短词检索",
+      "description": "使用 01 角色发送“唱一首生日”，服务端应记录 music_search source=v2_cmd query=生日 prefix=01；结果可以是当前人格命中或兜底 miss，但不能缺失前缀检索证据。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "唱一首生日"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=生日",
+            "prefix=01"
+          ],
+          "any_keywords": [
+            "result=hit",
+            "result=miss"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-prefix-search-no-cross-persona",
+      "label": "音乐 · 不跨人格兜底日志",
+      "description": "使用 01 角色发送“请播放歌曲生日快乐歌”，通过日志确认指定歌名走 prefix=01 的 music_search；当 01 不可用时应出现 prefix_mismatch、quota_exceeded、no_candidate_in_prefix 或 disabled 等 miss 原因，而不是播放其他人格。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请播放歌曲生日快乐歌"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "prefix=01"
+          ],
+          "any_keywords": [
+            "query=生日快乐",
+            "query=生日快乐歌"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "prefix=01"
+          ],
+          "any_keywords": [
+            "result=hit",
+            "reason=prefix_mismatch",
+            "reason=quota_exceeded",
+            "reason=no_candidate_in_prefix",
+            "reason=disabled"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

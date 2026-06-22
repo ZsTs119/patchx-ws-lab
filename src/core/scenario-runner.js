@@ -10,6 +10,7 @@ export class ScenarioRunner {
     this.getIdentity = getIdentity;
     this.getCapabilities = getCapabilities;
     this.tools = tools;
+    this.lastRestResponse = null;
   }
 
   async runRoleTextSmoke(wsUrl, identity) {
@@ -89,7 +90,8 @@ export class ScenarioRunner {
         steps.push({ name: step.action, status: "running" });
         if (step.action === "connect_ws") {
           this.tools.validateConnection?.();
-          await this.wsClient.connect(this.getWsUrl(), this.getIdentity());
+          const wsUrl = connectionUrlForStep(this.getWsUrl(), step, step.query ? this.resolve(step.query) : {});
+          await this.wsClient.connect(wsUrl, this.getIdentity());
           this.markLastStep(steps, "pass");
         } else if (step.action === "connect_hello") {
           await this.tools.connectHello?.();
@@ -100,7 +102,7 @@ export class ScenarioRunner {
             this.markLastStep(steps, "pass");
           }
         } else if (step.action === "disconnect") {
-          this.wsClient.disconnect();
+          this.wsClient.disconnect({ userInitiated: true, reason: "scenario_disconnect" });
           if (step.wait_ms) await sleep(step.wait_ms);
           this.markLastStep(steps, "pass");
         } else if (step.action === "wait") {
@@ -203,6 +205,7 @@ export class ScenarioRunner {
           this.wsClient.sendRaw(this.resolveText(step.text || ""), step.label || "raw");
           this.markLastStep(steps, "pass");
         } else if (step.action === "send_text") {
+          await this.tools.ensureWsReadyForScenarioSend?.();
           this.wsClient.sendTextListen(this.resolveText(step.text || this.getText()), this.wsClient.sessionId);
           this.markLastStep(steps, "pass");
         } else if (step.action === "wait_ws") {
@@ -211,9 +214,22 @@ export class ScenarioRunner {
         } else if (step.action === "expect_no_ws") {
           await this.expectNoEvent(step);
           this.markLastStep(steps, "pass");
+        } else if (step.action === "expect_conversation_contains") {
+          const matched = await this.waitForUiText(step);
+          this.markLastStep(steps, "pass", matched);
+        } else if (step.action === "expect_connection_state") {
+          const matched = await this.waitForConnectionState(step);
+          this.markLastStep(steps, "pass", matched);
         } else if (step.action === "expect_binary") {
           const event = await this.waitFor((candidate) => candidate.kind === "binary" && candidate.direction === "server", step.timeout_ms || 8000);
           this.markLastStep(steps, "pass", `${event.bytes || 0} bytes`);
+        } else if (step.action === "mark_binary_cadence") {
+          if (!this.store.markBinaryMetricsStart) throw new Error("binary cadence marker is unavailable");
+          this.store.markBinaryMetricsStart();
+          this.markLastStep(steps, "pass");
+        } else if (step.action === "expect_binary_cadence") {
+          const stats = await this.expectBinaryCadence(step);
+          this.markLastStep(steps, "pass", binaryCadenceNote(stats));
         } else if (step.action === "expect_playback_stats") {
           const stats = await this.expectPlaybackStats(step);
           this.markLastStep(steps, "pass", playbackStatsNote(stats));
@@ -262,6 +278,30 @@ export class ScenarioRunner {
             matches.push(`${matched.keyword}:${matched.count}`);
           }
           this.markLastStep(steps, "pass", matches.join(", "));
+        } else if (step.action === "rest_request") {
+          const resolvedStep = this.resolve(step);
+          const response = await this.api.request(resolvedStep.path, {
+            method: resolvedStep.method,
+            headers: resolvedStep.headers,
+            body: resolvedStep.body,
+            timeoutMs: resolvedStep.timeout_ms
+          });
+          this.lastRestResponse = response;
+          const mismatch = restResponseMismatch(response, resolvedStep);
+          if (mismatch) {
+            throw new Error(mismatch);
+          }
+          this.markLastStep(steps, "pass", restResponseNote(response));
+        } else if (step.action === "expect_rest") {
+          if (!this.lastRestResponse) {
+            throw new Error("expect_rest requires a previous rest_request step");
+          }
+          const resolvedStep = this.resolve(step);
+          const mismatch = restResponseMismatch(this.lastRestResponse, resolvedStep);
+          if (mismatch) {
+            throw new Error(mismatch);
+          }
+          this.markLastStep(steps, "pass", restResponseNote(this.lastRestResponse));
         } else {
           throw new Error(`unsupported scenario action: ${step.action}`);
         }
@@ -318,8 +358,12 @@ export class ScenarioRunner {
   }
 
   resolveText(text) {
+    const identity = this.getIdentity?.() || {};
     return String(text)
       .replaceAll("{{session_id}}", this.wsClient.sessionId || "")
+      .replaceAll("{{device_id}}", identity.deviceId || identity.device_id || "")
+      .replaceAll("{{user_id}}", identity.userId || identity.user_id || "")
+      .replaceAll("{{trace_id}}", identity.traceId || identity.trace_id || "")
       .replaceAll("{{text}}", this.getText());
   }
 
@@ -341,6 +385,43 @@ export class ScenarioRunner {
     });
   }
 
+  async waitForUiText(step = {}) {
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 120;
+    const needles = [
+      ...normalizeStringList(step.text),
+      ...normalizeStringList(step.any_text),
+      ...normalizeStringList(step.any_texts)
+    ];
+    if (!needles.length) {
+      throw new Error("expect_conversation_contains requires text, any_text or any_texts");
+    }
+    const deadline = performance.now() + timeoutMs;
+    do {
+      const text = this.tools.getConversationText?.() || "";
+      const matched = needles.find((needle) => text.includes(needle));
+      if (matched) return matched;
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    throw new Error(`conversation text missing one of: ${needles.join(", ")}`);
+  }
+
+  async waitForConnectionState(step = {}) {
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 120;
+    const expected = normalizeStringList(step.one_of || step.states || step.state);
+    if (!expected.length) {
+      throw new Error("expect_connection_state requires state or one_of");
+    }
+    const deadline = performance.now() + timeoutMs;
+    do {
+      const state = this.tools.getConnectionState?.() || "";
+      if (expected.includes(state)) return state;
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    throw new Error(`connection state mismatch: expected ${expected.join(", ")}, got ${this.tools.getConnectionState?.() || ""}`);
+  }
+
   markLastStep(steps, status, note = "") {
     if (!steps.length) return;
     steps[steps.length - 1] = { ...steps[steps.length - 1], status, note };
@@ -356,9 +437,10 @@ export class ScenarioRunner {
     const intervalMs = step.interval_ms || 500;
     const minimum = step.min_matches || 1;
     const deadline = performance.now() + timeoutMs;
+    const filters = this.logFiltersForStep(step);
     let lastMatched = 0;
     do {
-      const logs = await this.api.logs({ ...this.getFilters(), keyword, limit: step.limit || 500 });
+      const logs = await this.api.logs({ ...filters, keyword, limit: step.limit || 500 });
       lastMatched = logs.summary?.total_matched ?? logs.entries?.length ?? 0;
       if (lastMatched >= minimum) {
         return lastMatched;
@@ -373,9 +455,10 @@ export class ScenarioRunner {
     const intervalMs = step.interval_ms || 500;
     const minimum = step.min_matches || 1;
     const deadline = performance.now() + timeoutMs;
+    const filters = this.logFiltersForStep(step);
     do {
       for (const keyword of keywords) {
-        const logs = await this.api.logs({ ...this.getFilters(), keyword, limit: step.limit || 500 });
+        const logs = await this.api.logs({ ...filters, keyword, limit: step.limit || 500 });
         const count = logs.summary?.total_matched ?? logs.entries?.length ?? 0;
         if (count >= minimum) {
           return { keyword, count };
@@ -384,6 +467,23 @@ export class ScenarioRunner {
       await sleep(intervalMs);
     } while (performance.now() < deadline);
     return null;
+  }
+
+  logFiltersForStep(step = {}) {
+    const filters = { ...this.getFilters() };
+    const scope = String(step.log_scope || step.scope || "").trim().toLowerCase();
+    if (scope === "trace") {
+      delete filters.session_id;
+    } else if (scope === "identity") {
+      delete filters.session_id;
+      delete filters.trace_id;
+    } else if (scope === "global") {
+      delete filters.device_id;
+      delete filters.user_id;
+      delete filters.session_id;
+      delete filters.trace_id;
+    }
+    return filters;
   }
 
   async expectPlaybackStats(step = {}) {
@@ -402,6 +502,27 @@ export class ScenarioRunner {
       await sleep(intervalMs);
     } while (performance.now() < deadline);
     throw new Error(lastError || "playback stats expectation failed");
+  }
+
+  async expectBinaryCadence(step = {}) {
+    if (!this.store.binaryCadence) {
+      throw new Error("binary cadence stats are unavailable");
+    }
+    const timeoutMs = step.timeout_ms || 5000;
+    const intervalMs = step.interval_ms || 120;
+    const deadline = performance.now() + timeoutMs;
+    let lastError = "";
+    let lastStats = null;
+    do {
+      lastStats = this.store.binaryCadence({
+        targetFrameMs: step.frame_duration_ms || step.target_frame_ms,
+        burstThresholdMs: step.burst_threshold_ms
+      });
+      lastError = binaryCadenceMismatch(lastStats, step);
+      if (!lastError) return lastStats;
+      await sleep(intervalMs);
+    } while (performance.now() < deadline);
+    throw new Error(lastError || "binary cadence expectation failed");
   }
 
   async expectPlaybackQuality(step = {}) {
@@ -438,14 +559,13 @@ function matchesEvent(event, step) {
   if (step.type && event.type !== step.type && event.payload?.type !== step.type) return false;
   if (step.state && event.payload?.state !== step.state) return false;
   if (step.reason && event.payload?.reason !== step.reason) return false;
+  const payloadText = String(event.payload?.text || event.payload?.content || event.payload?.sentence || event.payload?.message || "");
+  if (step.payload_text_non_empty && !payloadText.trim()) return false;
+  if (step.payload_text_contains && !payloadText.includes(String(step.payload_text_contains))) return false;
   if (step.payload && typeof step.payload === "object") {
     for (const [key, value] of Object.entries(step.payload)) {
       if (event.payload?.[key] !== value) return false;
     }
-  }
-  for (const key of normalizeStringList(step.payload_present)) {
-    const value = event.payload?.[key];
-    if (value === undefined || value === null || value === "") return false;
   }
   return true;
 }
@@ -453,13 +573,6 @@ function matchesEvent(event, step) {
 function normalizeExpectedEvents(raw) {
   if (!raw) return [];
   return Array.isArray(raw) ? raw : [raw];
-}
-
-function normalizeStringList(raw) {
-  if (!raw) return [];
-  return (Array.isArray(raw) ? raw : [raw])
-    .map((item) => String(item || "").trim())
-    .filter(Boolean);
 }
 
 function normalizeKeywords(step = {}) {
@@ -476,6 +589,88 @@ function normalizeAnyKeywords(step = {}) {
   return (Array.isArray(raw) ? raw : [raw])
     .map((item) => String(item || "").trim())
     .filter(Boolean);
+}
+
+function restResponseMismatch(response = {}, step = {}) {
+  const expectedStatus = step.expect_status ?? step.status;
+  if (expectedStatus !== undefined) {
+    const allowed = Array.isArray(expectedStatus) ? expectedStatus.map(Number) : [Number(expectedStatus)];
+    if (!allowed.includes(Number(response.status))) {
+      return `REST status mismatch: ${response.status} not in ${allowed.join(",")}`;
+    }
+  }
+  if (step.expect_ok !== undefined && Boolean(response.ok) !== Boolean(step.expect_ok)) {
+    return `REST ok mismatch: ${Boolean(response.ok)} != ${Boolean(step.expect_ok)}`;
+  }
+
+  const body = response.body;
+  for (const field of normalizeStringList(step.expect_fields)) {
+    const value = getPath(body, field);
+    if (value === undefined || value === null || value === "") {
+      return `REST field missing: ${field}`;
+    }
+  }
+  for (const [path, expected] of Object.entries(step.expect_json || {})) {
+    const actual = getPath(body, path);
+    if (!sameJsonValue(actual, expected)) {
+      return `REST field mismatch: ${path}=${JSON.stringify(actual)} != ${JSON.stringify(expected)}`;
+    }
+  }
+  for (const [path, minimum] of Object.entries(step.expect_number_min || {})) {
+    const actual = Number(getPath(body, path));
+    if (!Number.isFinite(actual) || actual < Number(minimum)) {
+      return `REST numeric field too low: ${path}=${actual} < ${minimum}`;
+    }
+  }
+  for (const [path, needle] of Object.entries(step.expect_string_contains || {})) {
+    const actual = String(getPath(body, path) ?? "");
+    if (!actual.includes(String(needle))) {
+      return `REST string field mismatch: ${path} does not contain ${needle}`;
+    }
+  }
+  for (const needle of normalizeStringList(step.expect_body_contains)) {
+    const haystack = typeof body === "string" ? body : JSON.stringify(body);
+    if (!haystack.includes(needle)) {
+      return `REST body does not contain: ${needle}`;
+    }
+  }
+  return "";
+}
+
+function restResponseNote(response = {}) {
+  const body = response.body;
+  const bits = [`HTTP ${response.status}`];
+  if (body && typeof body === "object") {
+    if (body.generation !== undefined) bits.push(`generation ${body.generation}`);
+    if (body.redis?.deleted_keys !== undefined) bits.push(`redis ${body.redis.deleted_keys}`);
+    if (body.postgres?.chat_messages !== undefined) bits.push(`chat ${body.postgres.chat_messages}`);
+    if (body.error) bits.push(String(body.error).slice(0, 80));
+  }
+  return bits.join(" · ");
+}
+
+function normalizeStringList(raw) {
+  if (!raw) return [];
+  return (Array.isArray(raw) ? raw : [raw])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function getPath(target, path) {
+  if (!path) return target;
+  const parts = String(path).split(".");
+  let current = target;
+  for (const part of parts) {
+    if (current === undefined || current === null) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function sameJsonValue(actual, expected) {
+  if (typeof expected === "number") return Number(actual) === expected;
+  if (typeof expected === "boolean") return actual === expected;
+  return actual === expected;
 }
 
 function eventNoteFor(event) {
@@ -542,6 +737,23 @@ function playbackStatsNote(stats = {}) {
   return `recv ${stats.receivedFrames || 0}, play ${stats.playedFrames || 0}, drop ${stats.droppedFrames || 0}, midUF ${stats.midSentenceUnderflowCount || 0}`;
 }
 
+function binaryCadenceNote(stats = {}) {
+  return `frames ${stats.receivedFrames || 0}, p50 ${stats.binaryFrameIntervalP50Ms ?? "-"}ms, burst ${stats.binaryBurstCount || 0}, tail ${stats.tailToSentenceEndMs ?? "-"}ms`;
+}
+
+function connectionUrlForStep(baseUrl, step = {}, params = {}) {
+  if (!step.path && !Object.keys(params || {}).length) return baseUrl;
+  const url = new URL(baseUrl);
+  if (step.path) {
+    url.pathname = String(step.path);
+  }
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === null) continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
 function playbackQualityNote(stats = {}) {
   const platform = stats.platform || {};
   return [
@@ -590,6 +802,35 @@ function playbackStatsMismatch(stats = {}, step = {}) {
     const expected = numericStepValue(step, stepKey);
     if (expected !== null && Number(stats[statKey] || 0) > expected) {
       return `${statKey} too high: ${stats[statKey] || 0} > ${expected}`;
+    }
+  }
+  return "";
+}
+
+function binaryCadenceMismatch(stats = {}, step = {}) {
+  const minimumFrames = numericStepValue(step, "min_frames");
+  if (minimumFrames !== null && Number(stats.receivedFrames || 0) < minimumFrames) {
+    return `binary frames too low: ${stats.receivedFrames || 0} < ${minimumFrames}`;
+  }
+  const minP50 = numericStepValue(step, "min_p50_ms");
+  if (minP50 !== null && stats.binaryFrameIntervalP50Ms !== null && Number(stats.binaryFrameIntervalP50Ms) < minP50) {
+    return `binary p50 too low: ${stats.binaryFrameIntervalP50Ms} < ${minP50}`;
+  }
+  const maxP50 = numericStepValue(step, "max_p50_ms");
+  if (maxP50 !== null && stats.binaryFrameIntervalP50Ms !== null && Number(stats.binaryFrameIntervalP50Ms) > maxP50) {
+    return `binary p50 too high: ${stats.binaryFrameIntervalP50Ms} > ${maxP50}`;
+  }
+  const maxBurst = numericStepValue(step, "max_burst_count");
+  if (maxBurst !== null && Number(stats.binaryBurstCount || 0) > maxBurst) {
+    return `binary burst count too high: ${stats.binaryBurstCount || 0} > ${maxBurst}`;
+  }
+  const maxTail = numericStepValue(step, "max_tail_to_sentence_end_ms");
+  if (maxTail !== null) {
+    if (stats.tailToSentenceEndMs === null || stats.tailToSentenceEndMs === undefined) {
+      return "tail_to_sentence_end_ms is unavailable";
+    }
+    if (Number(stats.tailToSentenceEndMs) > maxTail) {
+      return `tail_to_sentence_end_ms too high: ${stats.tailToSentenceEndMs} > ${maxTail}`;
     }
   }
   return "";

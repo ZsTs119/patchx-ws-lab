@@ -1,0 +1,190 @@
+{
+  "id": "tts-gateway-strict-frame-pacing",
+  "name": "TTS 网关严格帧节奏",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 hello.playback_audio_params.frame_duration=20/40/60 时，AI Server 按下行帧长投递给网关，不再头部预缓冲或尾部 sleep。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.tts-gateway-strict-frame-pacing-20ms",
+      "label": "TTS · 网关严格 20ms 投递",
+      "description": "设置上行 opus/60ms、下行 opus/20ms，触发多帧 TTS，验收 payload 帧长、服务端 pacing summary、WebSocket binary cadence 和 sentence_end 尾部延迟。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 20 } },
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "audio_params.format": "opus",
+            "audio_params.sample_rate": 16000,
+            "audio_params.channels": 1,
+            "audio_params.frame_duration": 60,
+            "playback_audio_params.format": "opus",
+            "playback_audio_params.sample_rate": 24000,
+            "playback_audio_params.channels": 1,
+            "playback_audio_params.frame_duration": 20
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "mark_binary_cadence" },
+        {
+          "action": "send_text",
+          "text": "请用一段连续的中文自然回复我，长度控制在三十到五十个字之间，用来验证下行音频帧的发送节奏。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_end", "timeout_ms": 50000 },
+        {
+          "action": "expect_binary_cadence",
+          "frame_duration_ms": 20,
+          "min_frames": 12,
+          "min_p50_ms": 12,
+          "max_p50_ms": 45,
+          "max_burst_count": 0,
+          "max_tail_to_sentence_end_ms": 35,
+          "timeout_ms": 5000
+        },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 70000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "服务端下行音频参数",
+            "frame_duration=20",
+            "audio_outbound_format",
+            "frame_duration_ms=20",
+            "tts_audio_pacing",
+            "pacing_mode=gateway_strict"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.tts-gateway-strict-frame-pacing",
+      "label": "TTS · 网关严格 40ms 投递",
+      "description": "设置上行 opus/60ms、下行 opus/40ms，触发多帧 TTS，验收 payload 帧长、服务端 pacing summary、WebSocket binary cadence 和 sentence_end 尾部延迟。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "audio_params.format": "opus",
+            "audio_params.sample_rate": 16000,
+            "audio_params.channels": 1,
+            "audio_params.frame_duration": 60,
+            "playback_audio_params.format": "opus",
+            "playback_audio_params.sample_rate": 24000,
+            "playback_audio_params.channels": 1,
+            "playback_audio_params.frame_duration": 40
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "mark_binary_cadence" },
+        {
+          "action": "send_text",
+          "text": "请用一段连续的中文自然回复我，长度控制在三十到五十个字之间，用来验证下行音频帧的发送节奏。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_end", "timeout_ms": 50000 },
+        {
+          "action": "expect_binary_cadence",
+          "frame_duration_ms": 40,
+          "min_frames": 8,
+          "min_p50_ms": 25,
+          "max_p50_ms": 70,
+          "max_burst_count": 0,
+          "max_tail_to_sentence_end_ms": 45,
+          "timeout_ms": 5000
+        },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 70000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "服务端下行音频参数",
+            "frame_duration=40",
+            "audio_outbound_format",
+            "frame_duration_ms=40",
+            "tts_audio_pacing",
+            "pacing_mode=gateway_strict"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.tts-gateway-strict-frame-pacing-60ms",
+      "label": "TTS · 网关严格 60ms 投递",
+      "description": "设置上行 opus/60ms、下行 opus/60ms，触发多帧 TTS，验收 payload 帧长、服务端 pacing summary、WebSocket binary cadence 和 sentence_end 尾部延迟。",
+      "stability": "strict",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "audio_params.format": "opus",
+            "audio_params.sample_rate": 16000,
+            "audio_params.channels": 1,
+            "audio_params.frame_duration": 60,
+            "playback_audio_params.format": "opus",
+            "playback_audio_params.sample_rate": 24000,
+            "playback_audio_params.channels": 1,
+            "playback_audio_params.frame_duration": 60
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "mark_binary_cadence" },
+        {
+          "action": "send_text",
+          "text": "请用一段连续的中文自然回复我，长度控制在三十到五十个字之间，用来验证下行音频帧的发送节奏。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_end", "timeout_ms": 50000 },
+        {
+          "action": "expect_binary_cadence",
+          "frame_duration_ms": 60,
+          "min_frames": 5,
+          "min_p50_ms": 45,
+          "max_p50_ms": 95,
+          "max_burst_count": 0,
+          "max_tail_to_sentence_end_ms": 45,
+          "timeout_ms": 5000
+        },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 70000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "服务端下行音频参数",
+            "frame_duration=60",
+            "audio_outbound_format",
+            "frame_duration_ms=60",
+            "tts_audio_pacing",
+            "pacing_mode=gateway_strict"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

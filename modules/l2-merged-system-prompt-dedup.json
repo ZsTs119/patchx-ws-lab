@@ -1,0 +1,65 @@
+{
+  "id": "l2-merged-system-prompt-dedup",
+  "name": "L2 合并 Prompt 去重",
+  "area": "提示词",
+  "version": "1.0.0",
+  "description": "验证 merge_system_prompts=true 时，L2 投机候选会真实发起，并可通过服务端 LLMTrace 确认 L2 专属 prompt 在前、common_prompt 在后，且实时感官协议不重复注入。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.l2-merged-system-prompt-dedup",
+      "label": "提示词 · L2 合并 system 感知去重",
+      "description": "使用真实配置触发普通闲聊三路投机；要求 L2 候选发生 prompt swap、真实发起 L2 LLMTrace 并完成一轮 TTS。精确 system 顺序和 marker 计数由验收日志脚本读取 LLMTrace 完成。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "connect_ws",
+          "path": "/test"
+        },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "我想轻松聊一小句，你自然回答我就好。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "speculative|begin",
+            "candidates=l0,l1,l2",
+            "candidate_prompt_swap",
+            "source=l2",
+            "merge=true"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "[LLMTrace] 请求",
+            "doubao-seed-character-251128"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "speculative|l0_pass",
+            "speculative|l1_pass",
+            "speculative|l2_pass",
+            "l2_llm|done",
+            "l2_llm|context_done",
+            "取消L2 LLM流"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

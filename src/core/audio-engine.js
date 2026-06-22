@@ -47,10 +47,10 @@ export class AudioStreamer {
     this.paused = false;
     this.mode = "streaming";
     this.publishState(`streaming ${label}`);
-    this.sendListenState("start", label);
 
     const encoder = profile.format === "opus" ? createOpusEncoder(profile) : null;
     try {
+      this.sendListenState("start", label);
       const frames = sliceFrames(pcm, profile);
       for (const frame of frames) {
         if (this.stopRequested) break;
@@ -64,8 +64,12 @@ export class AudioStreamer {
       await this.streamTrailingSilence(profile, encoder, options.trailingSilenceMs);
     } finally {
       encoder?.destroy();
-      if (options.sendListenStop !== false) {
-        this.sendListenState("stop", label);
+      try {
+        if (options.sendListenStop !== false) {
+          this.sendListenState("stop", label);
+        }
+      } catch (error) {
+        this.store.add({ direction: "system", type: "audio", error: `listen stop 发送失败: ${error.message}` });
       }
       this.mode = "idle";
       this.publishState("idle");
@@ -114,15 +118,25 @@ export class AudioStreamer {
     this.publishState("silence");
     this.sendListenState("start", "silence");
     this.timer = window.setInterval(() => {
-      if (this.stopRequested) {
+      try {
+        if (this.stopRequested) {
+          encoder?.destroy();
+          this.sendListenState("stop", "silence");
+          this.clearTimer();
+          this.mode = "idle";
+          this.publishState("idle");
+          return;
+        }
+        if (!this.paused) {
+          this.sendFrame(frame, profile, encoder);
+        }
+      } catch (error) {
         encoder?.destroy();
-        this.sendListenState("stop", "silence");
         this.clearTimer();
+        this.mode = "idle";
+        this.stopRequested = true;
+        this.store.add({ direction: "system", type: "audio", error: `静音推流失败: ${error.message}` });
         this.publishState("idle");
-        return;
-      }
-      if (!this.paused) {
-        this.sendFrame(frame, profile, encoder);
       }
     }, profile.frameDuration);
   }

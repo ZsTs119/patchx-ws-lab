@@ -1,0 +1,38 @@
+{
+  "id": "megaphone-direct-ws",
+  "name": "传声筒直发 WS",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证打电话/传声筒命中后直接下发 megaphone_server WS，包含 friend_nickname，且成功路径不进入 TTS start。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.megaphone-direct-ws-call",
+      "label": "传声筒 · 直发切换 WS",
+      "description": "发送“打电话给小明”后，应收到当前设备上下文的 megaphone_server 切换消息，并携带 friend_nickname=小明。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "打电话给小明"
+        },
+        {
+          "action": "wait_ws",
+          "type": "megaphone",
+          "payload": {
+            "switch": "megaphone_server",
+            "friend_nickname": "小明"
+          },
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "tts", "state": "start", "timeout_ms": 1500 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

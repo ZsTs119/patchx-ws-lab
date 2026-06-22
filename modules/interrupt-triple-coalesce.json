@@ -1,0 +1,74 @@
+{
+  "id": "interrupt-triple-coalesce",
+  "name": "连续打断聚合韧性",
+  "area": "Core",
+  "version": "1.0.0",
+  "description": "验证活跃 TTS 期间连续语音打断会进入智能打断聚合路径，最多轻量止播一次，并且后续主流程仍能继续回复和播放 TTS。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.interrupt-triple-coalesce-main-flow",
+      "label": "连续打断 · 聚合止播与主流程恢复",
+      "description": "先让服务端进入较长 TTS 播放，再用 TTS-generated audio 连续注入用户插话，验证轻量止播/聚合证据，并用后续确定文本轮确认主流程仍能继续下发 TTS 音频。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请你慢慢讲一个比较长的日常故事，语速放慢一些，内容要足够长，方便我在播放过程中连续插话打断。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        {
+          "action": "stream_tts",
+          "text": "请先停一下我现在要连续说三段很长的话第一段换个问题第二段不要继续刚才的故事第三段请马上简短回答你听到了吗",
+          "duration_ms": 4200,
+          "require_speech": true,
+          "min_outbound_binary": 20,
+          "expect_during": [
+            { "type": "tts", "state": "stop", "reason": "interrupt", "timeout_ms": 45000 },
+            { "type": "stt", "timeout_ms": 45000 }
+          ]
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "smart_interrupt|req",
+            "interrupt_user_speech"
+          ],
+          "any_keywords": [
+            "smart_interrupt|coalesce_start",
+            "smart_interrupt|coalesce_update",
+            "smart_interrupt|coalesce_skip_api",
+            "smart_interrupt|light_stop_sent",
+            "smart_interrupt|definite_after_light_stop_process",
+            "smart_interrupt|partial_interrupt_tts_only",
+            "smart_interrupt|api_fail",
+            "smart_interrupt|interrupt"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "send_text",
+          "text": "只回复四个字：可以出声。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}
