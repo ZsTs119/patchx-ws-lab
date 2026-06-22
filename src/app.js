@@ -71,6 +71,13 @@ const builtInEndpointConfigs = [
     remote: true
   },
   {
+    id: "sprite-test-6001",
+    label: "小精灵测试环境 6001",
+    ws: "wss://ws-lab.patch-x.cn/env/test-6001/ws",
+    rest: "https://ws-lab.patch-x.cn/env/test-6001/api/v1/dev/ws-lab",
+    remote: true
+  },
+  {
     id: "sprite-ja",
     label: "小精灵日语环境",
     ws: "wss://ws-lab.patch-x.cn/env/ja/ws",
