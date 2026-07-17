@@ -1,4 +1,17 @@
-export const ROLE_CODES = ["01", "02", "03", "04", "05", "06"];
+export const ROLE_OPTIONS = Object.freeze([
+  Object.freeze({ code: "01", label: "小格" }),
+  Object.freeze({ code: "02", label: "小梦" }),
+  Object.freeze({ code: "03", label: "小燃" }),
+  Object.freeze({ code: "04", label: "小忧" }),
+  Object.freeze({ code: "05", label: "小慌" }),
+  Object.freeze({ code: "06", label: "小安" })
+]);
+
+export const ROLE_CODES = Object.freeze(ROLE_OPTIONS.map(({ code }) => code));
+
+export function getRoleLabel(roleCode = "01") {
+  return ROLE_OPTIONS.find(({ code }) => code === roleCode)?.label || ROLE_OPTIONS[0].label;
+}
 
 export function createIdentity(roleCode = "01") {
   const normalizedRole = ROLE_CODES.includes(roleCode) ? roleCode : "01";

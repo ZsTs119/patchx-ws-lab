@@ -1,0 +1,79 @@
+{
+  "id": "boot-greeting-onboarding-toggle",
+  "name": "开机引导 Onboarding 开关",
+  "area": "交互",
+  "version": "1.0.0",
+  "description": "验证 boot_greeting.onboarding_enabled=false 时，普通开机问候和 WS 手动问候仍可触发，但服务端按普通 greeting 处理，不进入新用户 MBTI/onboarding observation。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.boot-greeting-onboarding-disabled-auto",
+      "label": "开机引导 · 关闭 MBTI 保留自动问候",
+      "description": "前置条件：服务端 boot_greeting.enabled=true 且 boot_greeting.onboarding_enabled=false。硬件客户端 hello 后仍应收到普通开机问候，V2 请求携带 onboarding_enabled=false，入模 observation 使用 boot_greeting_prompt。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|api_ok",
+            "onboarding_enabled=false",
+            "effective_onboarding=false"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|tool_observation_injected",
+            "kind=boot_greeting_prompt"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.boot-greeting-onboarding-disabled-ws",
+      "label": "开机引导 · 关闭 MBTI 保留手动问候",
+      "description": "前置条件：服务端 boot_greeting.enabled=true、boot_greeting.onboarding_enabled=false 且 ws_trigger.enabled=true。App 客户端跳过自动问候后，手动 boot_greeting 仍应触发普通问候，并携带 onboarding_enabled=false。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait", "timeout_ms": 800 },
+        { "action": "send_json", "payload": { "type": "boot_greeting" } },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "expect_binary", "timeout_ms": 20000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|ws_start",
+            "boot_greeting|api_ok",
+            "onboarding_enabled=false",
+            "effective_onboarding=false"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "boot_greeting|tool_observation_injected",
+            "kind=boot_greeting_prompt"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

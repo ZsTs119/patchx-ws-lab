@@ -7,6 +7,106 @@
   "actions": [],
   "scenarios": [
     {
+      "id": "module.music-prefix-search-generic-random-addition",
+      "label": "音乐 · 泛化唱歌按 addition 随机",
+      "description": "使用 01 角色发送“能给我唱一首歌吧？”，当意图 addition 为随机/空时，服务端应按 query=random 走随机播放，不再从原话里二次抽取“歌吧”。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "能给我唱一首歌吧？"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=random",
+            "prefix=01"
+          ],
+          "any_keywords": [
+            "result=hit",
+            "result=miss"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-prefix-search-random-hint-song-name",
+      "label": "音乐 · 随机播放提示语带歌名",
+      "description": "使用 01 角色发送“给我唱首歌”，服务端随机命中歌曲后，play_hint_text 应渲染实际歌曲名，不应把 random 当作歌名或泄漏 {{song_name}}。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "给我唱首歌"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "expect_conversation_contains",
+          "text": "那我给你随便唱一首",
+          "timeout_ms": 10000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_hint source=v2_cmd",
+            "query=random",
+            "hint_song_name=",
+            "hint_text=那我给你随便唱一首"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-prefix-search-specified-hit-hint",
+      "label": "音乐 · 指定歌曲命中提示语",
+      "description": "使用 01 角色发送“请播放歌曲小花仙主题曲”，服务端应按 addition 歌名检索当前人格曲库；命中后播报 specified_play_hint_text，而不是固定随机播放提示语。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请播放歌曲小花仙主题曲"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "expect_conversation_contains",
+          "text": "那我就给你唱",
+          "timeout_ms": 5000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=小花仙主题曲",
+            "prefix=01",
+            "result=hit"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
       "id": "module.music-prefix-search-birthday",
       "label": "音乐 · 当前人格生日短词检索",
       "description": "使用 01 角色发送“唱一首生日”，服务端应记录 music_search source=v2_cmd query=生日 prefix=01；结果可以是当前人格命中或兜底 miss，但不能缺失前缀检索证据。",
@@ -78,6 +178,61 @@
             "reason=quota_exceeded",
             "reason=no_candidate_in_prefix",
             "reason=disabled"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-prefix-search-miss-recommendations",
+      "label": "音乐 · 不会唱时推荐会唱歌曲",
+      "description": "使用 01 角色发送一首不存在的指定歌曲；未命中后应播 no_music_fallback_hint_text 渲染文案，并通过 music_fallback_hint 日志确认只推荐当前人格候选。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请播放歌曲银河不存在的验收歌"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 60000 },
+        {
+          "action": "expect_conversation_contains",
+          "text": "这首歌我还不会呢，但我会",
+          "timeout_ms": 10000
+        },
+        {
+          "action": "expect_conversation_contains",
+          "text": "你可以直接让我唱这些歌噢",
+          "timeout_ms": 10000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=银河不存在的验收歌",
+            "prefix=01",
+            "result=miss"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_fallback_hint source=v2_cmd",
+            "result=recommended",
+            "reason=recommended",
+            "prefix=01",
+            "candidate_count=",
+            "song_names="
+          ],
+          "any_keywords": [
+            "recommendation_source=legacy",
+            "recommendation_source=registry"
           ],
           "timeout_ms": 90000
         },

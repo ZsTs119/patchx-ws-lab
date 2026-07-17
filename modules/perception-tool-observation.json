@@ -1,0 +1,87 @@
+{
+  "id": "perception-tool-observation",
+  "name": "感知 Tool Observation",
+  "area": "提示词",
+  "version": "1.0.0",
+  "description": "验证 Dialogue.perception_context_mode=tool_observation 时，投机 V2 主链路把 ##实时感官协议 作为 request-only assistant(tool_calls)+tool(result) 注入，而不是拼进 system。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.perception-tool-observation-chat",
+      "label": "感知 · Tool Result 注入",
+      "description": "运行前将服务端配置设置为 Dialogue.perception_context_mode=tool_observation。普通闲聊应完成一轮 TTS，并在 LLM 上下文日志中看到 perception_observation 的 assistant/tool pair。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "location.latitude": 30.239899,
+            "location.longitude": 120.21885,
+            "location.address": "杭州市上城区",
+            "location.ad_code": "330102"
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "我们做一次感知 tool observation 验收，请用一句自然的话回复我。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "perception|tool_observation_injected",
+            "perception_context_lookup",
+            "call_perception_context_",
+            "\"role\":\"assistant\"",
+            "\"role\":\"tool\""
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.perception-tool-observation-with-intent-default",
+      "label": "感知 · Intent 优先级",
+      "description": "运行前开启 Dialogue.perception_context_mode=tool_observation 且保持 Intent V2 默认投机 observation。日志中应同时出现 perception observation 和 intent default observation，用于人工核对 LLM 上下文顺序为 perception 在前、intent 在后。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "随便轻松聊一句，用一句话回复就行。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "perception|tool_observation_injected",
+            "intent|tool_observation_injected",
+            "perception_context_lookup",
+            "intent_context_lookup",
+            "call_perception_context_",
+            "call_intent_context_",
+            "\"kind\":\"default_speculative_instruction\"",
+            "\"role\":\"assistant\"",
+            "\"role\":\"tool\""
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

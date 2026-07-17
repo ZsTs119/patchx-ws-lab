@@ -1,0 +1,66 @@
+{
+  "id": "tts-sentence-start-state-gate",
+  "name": "TTS sentence_start 状态门禁",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 stop fence 或延迟 sentence_start 不会残留 SPEAKING，连续两轮 ASR/LLM/TTS 都能进入主流程并正常收口。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.tts-sentence-start-state-gate-two-turns",
+      "label": "TTS · sentence_start 状态门禁连续两轮",
+      "description": "连续推送两段 60ms PCM 语音输入，第一轮 TTS complete 后第二轮必须继续触发 sentence_start、下行音频和 stop，验收不会因残留 SPEAKING 阻塞主流程。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，这是第一轮语音主流程测试，请简单回复一句。",
+          "duration_ms": 1500,
+          "trailing_silence_ms": 360,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 6,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        { "action": "wait", "ms": 300 },
+        {
+          "action": "stream_tts",
+          "text": "这是第二轮语音主流程测试，请再次简短回复。",
+          "duration_ms": 1500,
+          "trailing_silence_ms": 360,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 6,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "tts" },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "state|清除讲话状态 server=IDLE"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    }
+  ]
+}

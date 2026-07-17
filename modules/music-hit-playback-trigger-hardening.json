@@ -1,0 +1,45 @@
+{
+  "id": "music-hit-playback-trigger-hardening",
+  "name": "音乐命中播放触发加固",
+  "area": "音频链路",
+  "version": "1.0.0",
+  "description": "验证命中本地音乐后，提示语播完会稳定触发 playmusic 和 music TTS 播放链路，并留下媒体播放保护日志。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.music-hit-playback-trigger-hardening-playback",
+      "label": "音乐 · 命中后播放不被文本打断",
+      "description": "发送泛化音乐播放请求，验收命中音乐后完整下发 playmusic、tts start(music)、sentence_start(music)、二进制音频和 stop(music)，并验证媒体播放保护日志。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "给我唱首歌" },
+        { "action": "wait_ws", "type": "playmusic", "payload": { "tts_type": "music", "state": "start" }, "timeout_ms": 90000 },
+        { "action": "wait_ws", "type": "tts", "state": "start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "expect_binary", "timeout_ms": 15000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "payload": { "tts_type": "music" }, "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "media_playback|active",
+            "media_playback|clear reason=music_complete",
+            "tts|start_sent",
+            "tts_type=music"
+          ],
+          "any_keywords": [
+            "source=v2_cmd",
+            "source=local_tool",
+            "source=direct_music"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

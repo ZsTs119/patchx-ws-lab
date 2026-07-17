@@ -151,6 +151,10 @@ export function normalizeEvent(event) {
     bytes: event.bytes ?? 0,
     error: event.error ?? ""
   };
+  const connectionAttemptId = Number(event.connection_attempt_id || 0);
+  if (Number.isInteger(connectionAttemptId) && connectionAttemptId > 0) {
+    normalized.connection_attempt_id = connectionAttemptId;
+  }
   if (binaryPayload) {
     Object.defineProperty(normalized, "binaryPayload", {
       value: binaryPayload,

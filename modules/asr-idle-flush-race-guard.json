@@ -1,0 +1,61 @@
+{
+  "id": "asr-idle-flush-race-guard",
+  "name": "ASR Idle Flush 竞态保护",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 Doubao ASR 180ms 聚包、idle finalize 和旧 provider idle flush 竞态保护上线后，正常全双工语音链路仍能完成 ASR/LLM/TTS 闭环，且不会产生 service_status 失败。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-idle-flush-race-guard-full-duplex",
+      "label": "ASR · idle flush 竞态保护闭环",
+      "description": "使用 60ms PCM 上行真实中文语音，故意不发送 listen:stop，验收 180ms 聚包、realtime idle 收口和主流程输出；日志侧关注 threshold 发包、idle finalize 信号和无业务失败。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，我想测试一下全双工语音识别是否稳定，请简单回复一句。",
+          "duration_ms": 1600,
+          "trailing_silence_ms": 0,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "tts" },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "asr_generation|bind",
+            "asr_chunk|send reason=threshold"
+          ],
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_finalize|tail_silence_send",
+            "asr_finalize|definite_after_silence",
+            "asr_finalize|fallback_consume",
+            "[ASR] 最终识别结果(definite=true)"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    }
+  ]
+}

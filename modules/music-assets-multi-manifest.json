@@ -1,0 +1,248 @@
+{
+  "id": "music-assets-multi-manifest",
+  "name": "音乐资产多清单验收",
+  "area": "配置中心",
+  "version": "1.0.0",
+  "description": "验证 6 份 Nacos 音乐清单已合并为一个健康 Registry，并确认 Intent V2、人格前缀、hardware_unlock 唱歌版本和播放 SOP 没有因运维分片而改变。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.music-assets-multi-manifest-single-compat",
+      "label": "音乐多清单 · Single 兼容基线",
+      "description": "在尚未切换六源前验证新代码继续只监听原 music_assets.json，并保持运营 version、Intent V2 和完整播放 SOP。",
+      "precondition": "选择 01 角色；服务保持 mode=single，原 music_assets.json 至少有一首 prefix=01 且属于 hello 116 的可用歌曲。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "log_expect",
+          "keyword": "[MusicAssets] manifest_runtime_start mode=single configured_source_count=1",
+          "log_scope": "global",
+          "timeout_ms": 15000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "[MusicAssets] manifest_source_watch_registered mode=single source=single",
+          "log_scope": "global",
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "configured_source_count=1 ready_source_count=1 watch_registered_source_count=1",
+          "log_scope": "global",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "watch_registered_source_count=1 queue_depth=0 oldest_update_age_ms=0 reconcile_pending_source_count=0",
+          "log_scope": "global",
+          "timeout_ms": 120000
+        },
+        { "action": "connect_ws", "path": "/" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "unlocked_efunc_list": [116]
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "给我唱首歌" },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload": { "tts_type": "text" },
+          "payload_text_non_empty": true,
+          "timeout_ms": 90000
+        },
+        {
+          "action": "wait_ws",
+          "type": "playmusic",
+          "payload": { "tts_type": "music", "state": "start" },
+          "timeout_ms": 90000
+        },
+        { "action": "expect_binary", "timeout_ms": 15000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "stop",
+          "payload": { "tts_type": "music" },
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "prefix=01",
+            "result=hit",
+            "music_pending|trigger",
+            "media_playback|clear reason=music_complete"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-assets-multi-manifest-health",
+      "label": "音乐多清单 · 六源启动健康",
+      "description": "检查 multi 模式配置、6 个 watcher、6 个 ready source 和完整 aggregate 发布日志；本场景不修改 Nacos。",
+      "precondition": "服务已用 mode=multi 重启，music_assets_01.json～music_assets_06.json 均已在目标 namespace/group 发布合法内容。",
+      "stability": "strict",
+      "suite": "ops",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "log_expect",
+          "keyword": "[MusicAssets] manifest_runtime_start mode=multi configured_source_count=6",
+          "log_scope": "global",
+          "timeout_ms": 15000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "[MusicAssets] manifest_source_watch_registered mode=multi",
+          "min_matches": 6,
+          "log_scope": "global",
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "configured_source_count=6 ready_source_count=6 watch_registered_source_count=6",
+          "log_scope": "global",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "[MusicAssets] manifest_source_reconcile_succeeded",
+          "min_matches": 6,
+          "log_scope": "global",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "watch_registered_source_count=6 queue_depth=0 oldest_update_age_ms=0 reconcile_pending_source_count=0",
+          "log_scope": "global",
+          "timeout_ms": 120000
+        }
+      ]
+    },
+    {
+      "id": "module.music-assets-multi-manifest-playback-contract",
+      "label": "音乐多清单 · 意图与播放链路不变",
+      "description": "在六源完整聚合后用 01 角色请求唱歌，验收 Intent V2 仍查询统一 Registry，并保持提示语、playmusic、music TTS 和二进制音频顺序。",
+      "precondition": "选择 01 角色；multi 六源健康，统一 Registry 中至少有一首 prefix=01 且属于当前 hello 唱歌版本的可用歌曲。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "log_expect",
+          "keyword": "configured_source_count=6 ready_source_count=6 watch_registered_source_count=6",
+          "log_scope": "global",
+          "timeout_ms": 90000
+        },
+        { "action": "connect_ws", "path": "/" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "unlocked_efunc_list": [116]
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "给我唱首歌" },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload": { "tts_type": "text" },
+          "payload_text_non_empty": true,
+          "timeout_ms": 90000
+        },
+        {
+          "action": "wait_ws",
+          "type": "playmusic",
+          "payload": { "tts_type": "music", "state": "start" },
+          "timeout_ms": 90000
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "start",
+          "payload": { "tts_type": "music" },
+          "timeout_ms": 10000
+        },
+        { "action": "expect_binary", "timeout_ms": 15000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "stop",
+          "payload": { "tts_type": "music" },
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=random",
+            "prefix=01",
+            "result=hit",
+            "music_pending|trigger",
+            "media_playback|active",
+            "media_playback|clear reason=music_complete"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.music-assets-multi-manifest-source-key-not-routing",
+      "label": "音乐多清单 · 来源键不参与人格路由",
+      "description": "用 02 角色点播一首维护在 01 Data ID、但 item.model_prefixes 为 02 的验收歌曲；命中证明来源键没有覆盖现有人格搜索字段。",
+      "precondition": "选择 02 角色；在测试环境的 music_assets_01.json 中预置 alias=多清单跨源验收歌、model_prefixes=[\"02\"] 的可用歌曲，不要求 object_key 与 source key 相同。",
+      "stability": "beta",
+      "suite": "ops",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "unlocked_efunc_list": [116]
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "请播放歌曲多清单跨源验收歌" },
+        {
+          "action": "wait_ws",
+          "type": "playmusic",
+          "payload": { "tts_type": "music", "state": "start" },
+          "timeout_ms": 90000
+        },
+        { "action": "expect_binary", "timeout_ms": 15000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "stop",
+          "payload": { "tts_type": "music" },
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=多清单跨源验收歌",
+            "prefix=02",
+            "result=hit"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

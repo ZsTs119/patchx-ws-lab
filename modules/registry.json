@@ -1,180 +1,61 @@
 {
   "version": 1,
   "modules": [
-    {
-      "id": "listen-mode",
-      "type": "json",
-      "path": "./modules/listen-mode.json"
-    },
-    {
-      "id": "hello-capabilities",
-      "type": "json",
-      "path": "./modules/hello-capabilities.json"
-    },
-    {
-      "id": "required-main-flow",
-      "type": "json",
-      "path": "./modules/required-main-flow.json"
-    },
-    {
-      "id": "active-greet",
-      "type": "json",
-      "path": "./modules/active-greet.json"
-    },
-    {
-      "id": "environment-vision",
-      "type": "json",
-      "path": "./modules/environment-vision.json"
-    },
-    {
-      "id": "auth-ota-tools",
-      "type": "json",
-      "path": "./modules/auth-ota-tools.json"
-    },
-    {
-      "id": "interrupt-tools",
-      "type": "json",
-      "path": "./modules/interrupt-tools.json"
-    },
-    {
-      "id": "audio-matrix",
-      "type": "json",
-      "path": "./modules/audio-matrix.json"
-    },
-    {
-      "id": "asr-doubao-chunk-aggregation",
-      "type": "json",
-      "path": "./modules/asr-doubao-chunk-aggregation.json"
-    },
-    {
-      "id": "asr-nostream",
-      "type": "json",
-      "path": "./modules/asr-nostream.json"
-    },
-    {
-      "id": "asr-no-result-watchdog",
-      "type": "json",
-      "path": "./modules/asr-no-result-watchdog.json"
-    },
-    {
-      "id": "tts-japanese-soft-split",
-      "type": "json",
-      "path": "./modules/tts-japanese-soft-split.json"
-    },
-    {
-      "id": "tts-gateway-strict-frame-pacing",
-      "type": "json",
-      "path": "./modules/tts-gateway-strict-frame-pacing.json"
-    },
-    {
-      "id": "full-duplex-tts-playback",
-      "type": "json",
-      "path": "./modules/full-duplex-tts-playback.json"
-    },
-    {
-      "id": "full-duplex-tts-playback-artifact-guard",
-      "type": "json",
-      "path": "./modules/full-duplex-tts-playback-artifact-guard.json"
-    },
-    {
-      "id": "boot-greeting-onboarding",
-      "type": "json",
-      "path": "./modules/boot-greeting-onboarding.json"
-    },
-    {
-      "id": "intent-tool-observation",
-      "type": "json",
-      "path": "./modules/intent-tool-observation.json"
-    },
-    {
-      "id": "script-play-mode",
-      "type": "json",
-      "path": "./modules/script-play-mode.json"
-    },
-    {
-      "id": "music-prefix-search",
-      "type": "json",
-      "path": "./modules/music-prefix-search.json"
-    },
-    {
-      "id": "intent-l2-speculative",
-      "type": "json",
-      "path": "./modules/intent-l2-speculative.json"
-    },
-    {
-      "id": "speculative-tts-winner-index",
-      "type": "json",
-      "path": "./modules/speculative-tts-winner-index.json"
-    },
-    {
-      "id": "prompt-common-stage",
-      "type": "json",
-      "path": "./modules/prompt-common-stage.json"
-    },
-    {
-      "id": "l2-merged-system-prompt-dedup",
-      "type": "json",
-      "path": "./modules/l2-merged-system-prompt-dedup.json"
-    },
-    {
-      "id": "user-overview-metadata-latency",
-      "type": "json",
-      "path": "./modules/user-overview-metadata-latency.json"
-    },
-    {
-      "id": "interrupt-reconnect-context-resilience",
-      "type": "json",
-      "path": "./modules/interrupt-reconnect-context-resilience.json"
-    },
-    {
-      "id": "interrupt-triple-coalesce",
-      "type": "json",
-      "path": "./modules/interrupt-triple-coalesce.json"
-    },
-    {
-      "id": "exit-pipeline-resource-isolation",
-      "type": "json",
-      "path": "./modules/exit-pipeline-resource-isolation.json"
-    },
-    {
-      "id": "megaphone-direct-ws",
-      "type": "json",
-      "path": "./modules/megaphone-direct-ws.json"
-    },
-    {
-      "id": "reconnect-error-protocol",
-      "type": "json",
-      "path": "./modules/reconnect-error-protocol.json"
-    },
-    {
-      "id": "reconnect-resume-greeting",
-      "type": "json",
-      "path": "./modules/reconnect-resume-greeting.json"
-    },
-    {
-      "id": "gc-goodbye-lifecycle",
-      "type": "json",
-      "path": "./modules/gc-goodbye-lifecycle.json"
-    },
-    {
-      "id": "memory-reset-generation-barrier",
-      "type": "json",
-      "path": "./modules/memory-reset-generation-barrier.json"
-    },
-    {
-      "id": "friend-request-direct-ws",
-      "type": "json",
-      "path": "./modules/friend-request-direct-ws.json"
-    },
-    {
-      "id": "heartbeat-tools",
-      "type": "js",
-      "path": "./modules/heartbeat-tools.js"
-    },
-    {
-      "id": "invalid-sample",
-      "type": "json",
-      "path": "./modules/invalid-sample.json"
-    }
+    { "id": "listen-mode", "type": "json", "path": "./modules/listen-mode.json" },
+    { "id": "hello-capabilities", "type": "json", "path": "./modules/hello-capabilities.json" },
+    { "id": "hardware-unlock-efunc", "type": "json", "path": "./modules/hardware-unlock-efunc.json" },
+    { "id": "required-main-flow", "type": "json", "path": "./modules/required-main-flow.json" },
+    { "id": "recommendation-client-source", "type": "json", "path": "./modules/recommendation-client-source.json" },
+    { "id": "active-greet", "type": "json", "path": "./modules/active-greet.json" },
+    { "id": "environment-vision", "type": "json", "path": "./modules/environment-vision.json" },
+    { "id": "auth-ota-tools", "type": "json", "path": "./modules/auth-ota-tools.json" },
+    { "id": "interrupt-tools", "type": "json", "path": "./modules/interrupt-tools.json" },
+    { "id": "audio-matrix", "type": "json", "path": "./modules/audio-matrix.json" },
+    { "id": "asr-doubao-chunk-aggregation", "type": "json", "path": "./modules/asr-doubao-chunk-aggregation.json" },
+    { "id": "asr-realtime-idle-finalize", "type": "json", "path": "./modules/asr-realtime-idle-finalize.json" },
+    { "id": "asr-idle-flush-race-guard", "type": "json", "path": "./modules/asr-idle-flush-race-guard.json" },
+    { "id": "asr-nostream", "type": "json", "path": "./modules/asr-nostream.json" },
+    { "id": "asr-no-result-watchdog", "type": "json", "path": "./modules/asr-no-result-watchdog.json" },
+    { "id": "asr-recovery-hardening", "type": "json", "path": "./modules/asr-recovery-hardening.json" },
+    { "id": "tts-japanese-soft-split", "type": "json", "path": "./modules/tts-japanese-soft-split.json" },
+    { "id": "tts-gateway-strict-frame-pacing", "type": "json", "path": "./modules/tts-gateway-strict-frame-pacing.json" },
+    { "id": "tts-sentence-start-state-gate", "type": "json", "path": "./modules/tts-sentence-start-state-gate.json" },
+    { "id": "tts-downlink-stall-diagnostics", "type": "json", "path": "./modules/tts-downlink-stall-diagnostics.json" },
+    { "id": "full-duplex-tts-playback", "type": "json", "path": "./modules/full-duplex-tts-playback.json" },
+    { "id": "full-duplex-tts-playback-artifact-guard", "type": "json", "path": "./modules/full-duplex-tts-playback-artifact-guard.json" },
+    { "id": "boot-greeting-onboarding", "type": "json", "path": "./modules/boot-greeting-onboarding.json" },
+    { "id": "boot-greeting-onboarding-toggle", "type": "json", "path": "./modules/boot-greeting-onboarding-toggle.json" },
+    { "id": "intent-tool-observation", "type": "json", "path": "./modules/intent-tool-observation.json" },
+    { "id": "intent-zhipu-search-policy", "type": "json", "path": "./modules/intent-zhipu-search-policy.json" },
+    { "id": "perception-tool-observation", "type": "json", "path": "./modules/perception-tool-observation.json" },
+    { "id": "intent-v2-story-label-split", "type": "json", "path": "./modules/intent-v2-story-label-split.json" },
+    { "id": "script-play-mode", "type": "json", "path": "./modules/script-play-mode.json" },
+    { "id": "music-prefix-search", "type": "json", "path": "./modules/music-prefix-search.json" },
+    { "id": "music-assets-multi-manifest", "type": "json", "path": "./modules/music-assets-multi-manifest.json" },
+    { "id": "local-music-tts-start-compat", "type": "json", "path": "./modules/local-music-tts-start-compat.json" },
+    { "id": "music-hit-playback-trigger-hardening", "type": "json", "path": "./modules/music-hit-playback-trigger-hardening.json" },
+    { "id": "music-hit-sop-flow-guard", "type": "json", "path": "./modules/music-hit-sop-flow-guard.json" },
+    { "id": "intent-l2-speculative", "type": "json", "path": "./modules/intent-l2-speculative.json" },
+    { "id": "speculative-tts-winner-index", "type": "json", "path": "./modules/speculative-tts-winner-index.json" },
+    { "id": "prompt-common-stage", "type": "json", "path": "./modules/prompt-common-stage.json" },
+    { "id": "nacos-runtime-hot-update", "type": "json", "path": "./modules/nacos-runtime-hot-update.json" },
+    { "id": "l2-merged-system-prompt-dedup", "type": "json", "path": "./modules/l2-merged-system-prompt-dedup.json" },
+    { "id": "user-overview-metadata-latency", "type": "json", "path": "./modules/user-overview-metadata-latency.json" },
+    { "id": "yidun-device-model-business-id", "type": "json", "path": "./modules/yidun-device-model-business-id.json" },
+    { "id": "speaker-verification-grpc", "type": "json", "path": "./modules/speaker-verification-grpc.json" },
+    { "id": "interrupt-reconnect-context-resilience", "type": "json", "path": "./modules/interrupt-reconnect-context-resilience.json" },
+    { "id": "interrupt-triple-coalesce", "type": "json", "path": "./modules/interrupt-triple-coalesce.json" },
+    { "id": "smart-interrupt-asr-finalize", "type": "json", "path": "./modules/smart-interrupt-asr-finalize.json" },
+    { "id": "exit-pipeline-resource-isolation", "type": "json", "path": "./modules/exit-pipeline-resource-isolation.json" },
+    { "id": "goodbye-delay-normal-exit", "type": "json", "path": "./modules/goodbye-delay-normal-exit.json" },
+    { "id": "megaphone-direct-ws", "type": "json", "path": "./modules/megaphone-direct-ws.json" },
+    { "id": "reconnect-error-protocol", "type": "json", "path": "./modules/reconnect-error-protocol.json" },
+    { "id": "reconnect-resume-greeting", "type": "json", "path": "./modules/reconnect-resume-greeting.json" },
+    { "id": "reconnect-resume-history-ttl", "type": "json", "path": "./modules/reconnect-resume-history-ttl.json" },
+    { "id": "gc-goodbye-lifecycle", "type": "json", "path": "./modules/gc-goodbye-lifecycle.json" },
+    { "id": "memory-reset-generation-barrier", "type": "json", "path": "./modules/memory-reset-generation-barrier.json" },
+    { "id": "friend-request-direct-ws", "type": "json", "path": "./modules/friend-request-direct-ws.json" },
+    { "id": "heartbeat-tools", "type": "js", "path": "./modules/heartbeat-tools.js" },
+    { "id": "invalid-sample", "type": "json", "path": "./modules/invalid-sample.json" }
   ]
 }

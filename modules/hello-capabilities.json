@@ -41,10 +41,11 @@
             "location",
             "client_info",
             "sleep_mode",
-            "session_id"
+            "session_id",
+            "conversation_mode"
           ]
         },
-        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "wait_ws", "type": "hello", "payload": { "conversation_mode": "adult" }, "timeout_ms": 12000 },
         { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
       ]
     },
@@ -56,6 +57,72 @@
         { "action": "connect_ws" },
         { "action": "send_hello" },
         { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-conversation-mode-adult",
+      "label": "Hello 对话模式 adult",
+      "description": "显式发送 conversation_mode=adult，验收 hello ack 回传 adult。",
+      "stability": "strict",
+      "suite": "conversation_mode",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": { "conversation_mode": "adult" }
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload": { "conversation_mode": "adult" },
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-conversation-mode-teen",
+      "label": "Hello 对话模式 teen",
+      "description": "显式发送 conversation_mode=teen，验收 teen_character_prompts 可用时 hello ack 回传 teen。",
+      "stability": "strict",
+      "suite": "conversation_mode",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": { "conversation_mode": "teen" }
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload": { "conversation_mode": "teen" },
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-conversation-mode-invalid",
+      "label": "Hello 对话模式非法值兜底",
+      "description": "发送非法 conversation_mode，验收服务端兼容兜底 adult。",
+      "stability": "strict",
+      "suite": "conversation_mode",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": { "conversation_mode": "kid" }
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload": { "conversation_mode": "adult" },
+          "timeout_ms": 12000
+        },
         { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
       ]
     },
@@ -75,6 +142,80 @@
           }
         },
         { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-trace-id-server-fallback",
+      "label": "Hello trace 服务端兜底",
+      "description": "发送不带 trace_id 的 hello，验收服务端返回非空 UUID trace，且不是 unknown。",
+      "stability": "strict",
+      "suite": "trace",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "omit": ["trace_id"]
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload_non_empty": ["trace_id"],
+          "payload_not": { "trace_id": "unknown" },
+          "payload_matches": {
+            "trace_id": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-trace-id-dirty-unknown",
+      "label": "Hello trace dirty 值兜底",
+      "description": "发送 trace_id=unknown 的 hello，验收服务端保留兜底 trace，不把 unknown 回传给客户端。",
+      "stability": "strict",
+      "suite": "trace",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": { "trace_id": "unknown" }
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload_non_empty": ["trace_id"],
+          "payload_not": { "trace_id": "unknown" },
+          "payload_matches": {
+            "trace_id": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.hello-trace-id-client-override",
+      "label": "Hello trace 客户端覆盖",
+      "description": "发送合法自定义 trace_id，验收服务端 hello ack 原样返回。",
+      "stability": "strict",
+      "suite": "trace",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": { "trace_id": "client-trace-test" }
+        },
+        {
+          "action": "wait_ws",
+          "type": "hello",
+          "payload": { "trace_id": "client-trace-test" },
+          "timeout_ms": 12000
+        },
         { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
       ]
     }

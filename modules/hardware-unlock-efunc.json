@@ -1,0 +1,152 @@
+{
+  "id": "hardware-unlock-efunc",
+  "name": "硬件功能解锁验收",
+  "area": "核心 WS",
+  "version": "1.1.0",
+  "description": "验证 hello.unlocked_efunc_list 快照解析、缺省空快照、唱歌门禁和唱歌版本筛选。",
+  "scenarios": [
+    {
+      "id": "module.hardware-unlock-hello-snapshot",
+      "label": "Hello 解锁快照解析",
+      "stability": "strict",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "set": { "unlocked_efunc_list": [117, 103, 107, 999, "105"] }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "hardware_unlock|hello",
+            "codes=[103 105 107 117]"
+          ],
+          "timeout_ms": 5000
+        }
+      ]
+    },
+    {
+      "id": "module.hardware-unlock-hello-missing-empty",
+      "label": "Hello 缺失解锁字段视为空",
+      "stability": "strict",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "omit": ["unlocked_efunc_list"]
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "hardware_unlock|hello",
+            "codes=[]"
+          ],
+          "timeout_ms": 5000
+        }
+      ]
+    },
+    {
+      "id": "module.hardware-unlock-singing-locked",
+      "label": "唱歌未解锁兜底",
+      "stability": "beta",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "set": { "unlocked_efunc_list": [] }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "唱首歌" },
+        {
+          "action": "expect_conversation_contains",
+          "text": "唱歌功能还没有解锁哦。",
+          "timeout_ms": 15000
+        },
+        {
+          "action": "log_expect",
+          "keyword": "hardware_unlock|locked feature=singing",
+          "timeout_ms": 5000
+        }
+      ]
+    },
+    {
+      "id": "module.hardware-unlock-singing-offkey-tier",
+      "label": "唱歌跑调版版本筛选",
+      "stability": "beta",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "set": { "unlocked_efunc_list": [105] }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "唱首歌" },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "hardware_unlock|singing_tier source=v2_cmd tier=105",
+            "hardware_unlock|singing_tier source=local_tool tier=105",
+            "hardware_unlock|singing_tier source=mcp_handler_play_music tier=105"
+          ],
+          "timeout_ms": 12000
+        }
+      ]
+    },
+    {
+      "id": "module.hardware-unlock-singing-progress-tier",
+      "label": "唱歌进步版最高版本筛选",
+      "description": "hello 同时携带 105/115 时应取最高的 115 进步版，不因音乐清单拆分改变 tier 选择。",
+      "stability": "beta",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "set": { "unlocked_efunc_list": [105, 115] }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "唱首歌" },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "hardware_unlock|singing_tier source=v2_cmd tier=115",
+            "hardware_unlock|singing_tier source=local_tool tier=115",
+            "hardware_unlock|singing_tier source=mcp_handler_play_music tier=115"
+          ],
+          "timeout_ms": 12000
+        }
+      ]
+    },
+    {
+      "id": "module.hardware-unlock-singing-perfect-tier",
+      "label": "唱歌完美版最高版本筛选",
+      "description": "hello 同时携带 105/115/116 时应取最高的 116 完美版；无版本 alias 的旧歌曲仍由既有逻辑归入 116。",
+      "stability": "beta",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws", "path": "/test", "query": { "hardware_unlock_enabled": true } },
+        {
+          "action": "send_hello",
+          "set": { "unlocked_efunc_list": [105, 115, 116] }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "唱首歌" },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "hardware_unlock|singing_tier source=v2_cmd tier=116",
+            "hardware_unlock|singing_tier source=local_tool tier=116",
+            "hardware_unlock|singing_tier source=mcp_handler_play_music tier=116"
+          ],
+          "timeout_ms": 12000
+        }
+      ]
+    }
+  ]
+}

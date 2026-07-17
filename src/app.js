@@ -1,18 +1,37 @@
-import { createIdentity, createUuid, inferRoleFromDeviceId, ROLE_CODES } from "./core/identity-factory.js";
-import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-engine.js?v=20260622-gc-goodbye1";
-import { DownlinkAudioPlayer } from "./core/downlink-audio-player.js";
-import { DevLabApi } from "./core/dev-lab-api.js";
-import { eventText, ProtocolStore } from "./core/protocol-store.js?v=20260616-tts-pacing1";
-import { ModuleHost } from "./core/module-host.js?v=20260526-ja-tts-split2";
-import { ScenarioRunner } from "./core/scenario-runner.js?v=20260622-gc-goodbye1";
-import { WsClient } from "./core/ws-client.js?v=20260622-gc-goodbye1";
-import { WsLabAuthApi } from "./core/ws-lab-auth-api.js";
-import { enhanceFilePickers } from "./ui/file-picker.js";
-import { activateTab, bindTabs } from "./ui/tabs.js";
-import { enhanceSelectControls, refreshSelectControl, refreshSelectControls } from "./ui/select-popover.js?v=20260525-polish2";
+import {
+  createIdentity,
+  createUuid,
+  getRoleLabel,
+  inferRoleFromDeviceId,
+  ROLE_CODES,
+  ROLE_OPTIONS
+} from "./core/identity-factory.js?v=20260717-external-role2";
+import { AudioStreamer, base64ToBlob, getProfileFromInputs } from "./core/audio-engine.js?v=20260717-external-role2";
+import { DownlinkAudioPlayer } from "./core/downlink-audio-player.js?v=20260717-external-role2";
+import { DevLabApi } from "./core/dev-lab-api.js?v=20260717-external-role2";
+import {
+  createFreshRoleIdentity,
+  getExternalRoleStorageKey,
+  isCurrentExternalRoleRecord,
+  loadOrCreateExternalRoleRecord,
+  normalizeExternalAccountKey,
+  normalizeExternalRoleRecord,
+  saveExternalRoleRecord
+} from "./core/external-role-identity-store.js?v=20260717-external-role2";
+import {
+  createExternalRoleSwitchController,
+  isRuntimeOwnerCurrent
+} from "./core/external-role-switch-controller.js?v=20260717-external-role2";
+import { eventText, ProtocolStore } from "./core/protocol-store.js?v=20260717-external-role2";
+import { ModuleHost } from "./core/module-host.js?v=20260717-external-role2";
+import { ScenarioRunner } from "./core/scenario-runner.js?v=20260717-external-role2";
+import { isWsAttemptCancelledError, WsClient } from "./core/ws-client.js?v=20260717-external-role2";
+import { WsLabAuthApi } from "./core/ws-lab-auth-api.js?v=20260717-external-role2";
+import { enhanceFilePickers } from "./ui/file-picker.js?v=20260717-external-role2";
+import { activateTab, bindTabs } from "./ui/tabs.js?v=20260717-external-role2";
+import { enhanceSelectControls, refreshSelectControl, refreshSelectControls } from "./ui/select-popover.js?v=20260717-external-role2";
 
 const STORAGE_KEY = "patchx-ws-lab-v1";
-const EXTERNAL_DEVICE_IDENTITY_KEY = "patchx-ws-lab-external-device-identity-v1";
 const MOBILE_ACCOUNT_HINT_KEY = "patchx-ws-lab-mobile-account-hint-v1";
 const PLAYBACK_ARTIFACT_GUARD_KEY = "patchx-ws-lab-playback-artifact-guard-v1";
 const CUSTOM_ENDPOINT_ID = "custom";
@@ -21,6 +40,7 @@ const CAPABILITY_KEYS = ["rest", "personalities", "logs", "rounds", "logDetail",
 const REST_DEPENDENT_CAPABILITIES = ["personalities", "logs", "rounds", "logDetail", "tts", "scenarioEvidence"];
 const MOBILE_SHEET_TRANSITION_MS = 190;
 const ENDPOINT_DIALOG_TRANSITION_MS = 180;
+const EXTERNAL_ROLE_BUSY_STATES = new Set(["preparing", "disconnecting", "connecting", "awaiting_hello"]);
 const FULL_DUPLEX_TTS_TUNING = {
   initialBufferMs: 180,
   fullDuplexInitialBufferMs: 420,
@@ -478,12 +498,20 @@ const state = {
   audienceDebugMode: false,
   mobileAccountHintTimer: null,
   endpointDialogReturnTarget: "",
-  endpointDialogCloseTimer: null
+  endpointDialogCloseTimer: null,
+  externalRoleRecord: null,
+  externalRoleSwitchSnapshot: null,
+  externalRoleSwitchStatus: "idle",
+  externalRoleDialogReturnFocus: null,
+  externalRoleStorageWarning: "",
+  authAutoConnectTimer: null,
+  runtimeEpoch: 0
 };
 
 let audioStreamer;
 let downlinkAudioPlayer;
 let moduleHost;
+let externalRoleSwitchController;
 let capabilityProbeTimer = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -512,6 +540,24 @@ async function init() {
     store,
     getProfile: () => ensureActivePlaybackProfile(),
     onState: updatePlaybackState
+  });
+  externalRoleSwitchController = createExternalRoleSwitchController({
+    getProfile: () => state.authProfile,
+    getCurrentRecord: () => state.externalRoleRecord,
+    getIdentity: () => state.identity,
+    createFreshIdentity: (roleCode, previousIdentity) => createFreshRoleIdentity(roleCode, previousIdentity),
+    cancelAutoConnect: cancelAuthAutoConnect,
+    resetRuntime: resetRuntimeSession,
+    applyIdentity: applyExternalRoleIdentity,
+    persist: (accountKey, roleCode, identity) => {
+      const result = saveExternalRoleRecord(localStorage, accountKey, roleCode, identity);
+      state.externalRoleRecord = result.record;
+      return result;
+    },
+    beginConnect: beginExternalRoleConnection,
+    waitForHello: (attemptId) => waitForActiveSession(attemptId, 12000),
+    disconnectAttempt: (attemptId, reason) => wsClient.disconnect({ attemptId, reason, silent: true }),
+    onState: handleExternalRoleSwitchState
   });
   restoreState();
   registerCustomProtocolTemplates();
@@ -544,7 +590,8 @@ async function init() {
   store.subscribe(handleStoreUpdate);
   wsClient.onStateChange = updateConnectionState;
   wsClient.onLifecycle = handleWsLifecycle;
-  wsClient.onSession = (sessionId) => {
+  wsClient.onSession = (sessionId, attemptId) => {
+    if (attemptId !== wsClient.activeAttemptId) return;
     dom.sessionIdLabel.textContent = sessionId;
     dom.clientSessionLabel.textContent = shortText(sessionId);
     dom.clientHandshakeLabel.textContent = "握手完成";
@@ -697,6 +744,9 @@ async function handleAuthLogin(event) {
 }
 
 async function handleAuthLogout() {
+  externalRoleSwitchController?.invalidate("auth_logout");
+  cancelAuthAutoConnect();
+  closeExternalRoleDialog({ restoreFocus: false, force: true });
   resetRuntimeSession("auth_logout");
   let logoutError = "";
   try {
@@ -716,6 +766,9 @@ function enterAuthenticatedApp(profile) {
   const nextProfile = normalizeAuthProfile(profile);
   const profileChanged = authProfileKey(state.authProfile) !== authProfileKey(nextProfile);
   if (profileChanged || store.events.length || dom.conversationList?.children.length) {
+    externalRoleSwitchController?.invalidate("auth_profile_change");
+    cancelAuthAutoConnect();
+    closeExternalRoleDialog({ restoreFocus: false, force: true });
     resetRuntimeSession("auth_profile_change");
   }
   state.authProfile = nextProfile;
@@ -724,7 +777,7 @@ function enterAuthenticatedApp(profile) {
   applyAuthProfile();
   startAuthenticatedRuntime();
   if (state.authProfile.autoConnect && !wsClient.isConnected) {
-    window.setTimeout(() => connectAndHello(), 250);
+    scheduleAuthAutoConnect();
   }
 }
 
@@ -763,6 +816,7 @@ function authProfileKey(profile) {
 }
 
 function resetRuntimeSession(reason = "runtime_reset") {
+  state.runtimeEpoch += 1;
   const resetAuthMediaState = reason === "auth_logout" || reason === "auth_profile_change";
   try {
     audioStreamer?.stop();
@@ -774,7 +828,7 @@ function resetRuntimeSession(reason = "runtime_reset") {
   }
   downlinkAudioPlayer?.clear(reason, { keepUnlocked: !resetAuthMediaState, keepStats: false });
   if (wsClient.socket || wsClient.readyState !== WebSocket.CLOSED || wsClient.sessionId) {
-    wsClient.disconnect({ silent: true });
+    wsClient.disconnect({ silent: true, reason });
   }
   wsClient.sessionId = "";
   state.activeAudioProfile = null;
@@ -822,6 +876,45 @@ function resetRuntimeSession(reason = "runtime_reset") {
   renderInspectorContext();
   renderChainTimeline();
   renderOverview();
+}
+
+function captureRuntimeOwner() {
+  return Object.freeze({
+    runtimeEpoch: state.runtimeEpoch,
+    accountKey: normalizeExternalAccountKey(state.authProfile?.username || ""),
+    profileKey: authProfileKey(state.authProfile)
+  });
+}
+
+function runtimeOwnerIsCurrent(owner) {
+  return isRuntimeOwnerCurrent(owner, captureRuntimeOwner());
+}
+
+function assertRuntimeOwner(owner) {
+  if (runtimeOwnerIsCurrent(owner)) return;
+  const error = new Error("运行环境已切换，旧操作已取消");
+  error.code = "RUNTIME_OPERATION_CANCELLED";
+  throw error;
+}
+
+function isRuntimeCancellation(error) {
+  return error?.code === "RUNTIME_OPERATION_CANCELLED" || isWsAttemptCancelledError(error);
+}
+
+function cancelAuthAutoConnect() {
+  if (!state.authAutoConnectTimer) return;
+  window.clearTimeout(state.authAutoConnectTimer);
+  state.authAutoConnectTimer = null;
+}
+
+function scheduleAuthAutoConnect() {
+  cancelAuthAutoConnect();
+  const owner = captureRuntimeOwner();
+  state.authAutoConnectTimer = window.setTimeout(() => {
+    state.authAutoConnectTimer = null;
+    if (!runtimeOwnerIsCurrent(owner) || !state.authProfile?.autoConnect || wsClient.isConnected) return;
+    void connectAndHello({ runtimeOwner: owner, source: "auth_auto_connect" });
+  }, 250);
 }
 
 function createConnectionLifecycle(reason = "") {
@@ -950,6 +1043,12 @@ function applyAuthProfile() {
   if (external) {
     applyExternalDeviceIdentity();
     applyExternalAudioDefaults();
+  } else {
+    state.externalRoleRecord = null;
+    state.externalRoleStorageWarning = "";
+    state.externalRoleSwitchSnapshot = null;
+    state.externalRoleSwitchStatus = "idle";
+    closeExternalRoleDialog({ restoreFocus: false, force: true });
   }
   closeAllMobileSheets();
   closeAllDrawers();
@@ -958,69 +1057,51 @@ function applyAuthProfile() {
   dom.appShell.classList.remove("audience-debug");
   dom.debugLabBtn.hidden = external;
   dom.debugLabBtn.textContent = "调试台";
+  dom.externalRoleSwitchBtn.hidden = !external;
+  dom.audienceRoleCard.hidden = !external;
+  dom.mobileAccountRoleRow.hidden = !external;
   dom.logoutBtn.hidden = isLocalRuntime() && profile.username === "local_internal";
   dom.audienceStatusStrip.hidden = false;
   if (profile.endpointId) {
     applyProfileEndpoint(profile);
   }
   renderAudienceStatus();
+  renderExternalRoleDialog();
+  updateExternalRoleActionLocks();
   autoResizeComposer();
   scheduleMobileAccountHint();
 }
 
 function applyExternalDeviceIdentity() {
-  const identity = getExternalDeviceIdentity();
-  state.identity = identity;
-  state.selectedRole = inferRoleFromDeviceId(identity.deviceId);
+  const result = loadOrCreateExternalRoleRecord(localStorage, state.authProfile?.username || "");
+  state.externalRoleRecord = result.record;
+  state.externalRoleSwitchSnapshot = null;
+  state.externalRoleSwitchStatus = "idle";
+  state.externalRoleStorageWarning = result.warning || "";
+  dom.helloDeviceMacToggle.checked = true;
+  applyExternalRoleIdentity(result.record);
+}
+
+function applyExternalRoleIdentity(recordLike) {
+  const identity = recordLike?.identity;
+  const selectedRole = String(recordLike?.selectedRole || identity?.roleCode || "");
+  if (!identity || !ROLE_CODES.includes(selectedRole)) {
+    throw new Error("外部角色身份无效");
+  }
+  state.identity = structuredClone(identity);
+  state.selectedRole = selectedRole;
+  if (recordLike.recordId) {
+    state.externalRoleRecord = recordLike;
+  }
   writeIdentityToInputs();
   renderRoles();
   updateHelloPreview();
   renderInspectorContext();
+  renderEvidenceCards();
   renderOverview();
-}
-
-function getExternalDeviceIdentity() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(EXTERNAL_DEVICE_IDENTITY_KEY) || "null");
-    const identity = normalizeStoredIdentity(saved);
-    if (identity) {
-      saveExternalDeviceIdentity(identity);
-      return identity;
-    }
-  } catch {
-    // Fall through and create a fresh device identity.
-  }
-  const identity = createIdentity("01");
-  saveExternalDeviceIdentity(identity);
-  return identity;
-}
-
-function normalizeStoredIdentity(value) {
-  if (!value || typeof value !== "object") return null;
-  const deviceId = String(value.deviceId || value.device_id || "").trim();
-  const userId = String(value.userId || value.user_id || "").trim();
-  if (!deviceId || !userId) return null;
-  const roleCode = inferRoleFromDeviceId(deviceId);
-  const fallback = createIdentity(roleCode);
-  return {
-    roleCode,
-    deviceId,
-    userId,
-    traceId: String(value.traceId || value.trace_id || fallback.traceId).trim(),
-    clientId: String(value.clientId || value.client_id || fallback.clientId).trim(),
-    deviceMac: String(value.deviceMac || value.device_mac || fallback.deviceMac).trim(),
-    clientIp: String(value.clientIp || value.client_ip || fallback.clientIp).trim(),
-    deviceName: String(value.deviceName || value.device_name || fallback.deviceName).trim(),
-    token: String(value.token || fallback.token).trim()
-  };
-}
-
-function saveExternalDeviceIdentity(identity) {
-  try {
-    localStorage.setItem(EXTERNAL_DEVICE_IDENTITY_KEY, JSON.stringify(identity));
-  } catch {
-    // The identity can still be used for the current session if storage is unavailable.
-  }
+  renderAudienceStatus();
+  renderMobileAccountSheet();
+  renderExternalRoleDialog();
 }
 
 function applyProfileEndpoint(profile = state.authProfile) {
@@ -1046,6 +1127,11 @@ function renderAudienceStatus() {
   const endpoint = getEndpointConfigByValues(dom.wsUrlInput.value, dom.restBaseInput.value);
   dom.audienceEnvironmentLabel.textContent = endpoint?.label || "自定义环境";
   dom.audienceUserLabel.textContent = profile?.displayName || profile?.username || "内部人员";
+  if (dom.audienceRoleLabel) dom.audienceRoleLabel.textContent = formatExternalRoleLabel(state.selectedRole);
+  if (dom.audienceRoleCard) {
+    dom.audienceRoleCard.dataset.warning = state.externalRoleStorageWarning ? "true" : "false";
+    dom.audienceRoleCard.title = state.externalRoleStorageWarning || "";
+  }
 }
 
 function isMobilePureAudienceLayout() {
@@ -1078,8 +1164,209 @@ function renderMobileAccountSheet() {
   dom.mobileAccountName.textContent = profile.displayName || profile.username || "未登录";
   dom.mobileAccountAudience.textContent = profile.audience === "external" ? "外部测试人员" : "内部人员";
   dom.mobileAccountEndpoint.textContent = endpoint?.label || "自定义环境";
+  dom.mobileAccountRoleRow.hidden = internal;
+  dom.mobileAccountRole.textContent = formatExternalRoleLabel(state.selectedRole);
   if (dom.mobileAccountEnvironmentBtn) dom.mobileAccountEnvironmentBtn.hidden = !internal;
   if (dom.mobileAccountDebugBtn) dom.mobileAccountDebugBtn.hidden = !internal;
+}
+
+function formatExternalRoleLabel(roleCode = state.selectedRole) {
+  const normalized = ROLE_CODES.includes(roleCode) ? roleCode : "01";
+  return `${getRoleLabel(normalized)}（${normalized}）`;
+}
+
+function isExternalRoleSwitchBusy(status = state.externalRoleSwitchStatus) {
+  return state.authProfile?.audience === "external" && EXTERNAL_ROLE_BUSY_STATES.has(status);
+}
+
+function guardExternalRoleSwitchAction(action = "操作") {
+  if (!isExternalRoleSwitchBusy()) return false;
+  store.add({
+    direction: "system",
+    type: "lab",
+    label: "角色切换中",
+    payload: { action, status: state.externalRoleSwitchStatus }
+  });
+  return true;
+}
+
+function handleExternalRoleSwitchState(snapshot) {
+  const previousStatus = state.externalRoleSwitchStatus;
+  state.externalRoleSwitchSnapshot = snapshot;
+  state.externalRoleSwitchStatus = snapshot?.status || "idle";
+  if (snapshot?.record?.recordId) {
+    state.externalRoleRecord = snapshot.record;
+  }
+  if (snapshot && Object.hasOwn(snapshot, "storageWarning")) {
+    state.externalRoleStorageWarning = snapshot.storageWarning || "";
+  }
+  if (snapshot?.status === "reconnect_error" && dom.connectionPill?.dataset.state !== "error") {
+    updateConnectionState("error");
+  }
+  renderAudienceStatus();
+  renderMobileAccountSheet();
+  renderExternalRoleDialog();
+  updateExternalRoleActionLocks();
+
+  if (snapshot?.status === "connected" && previousStatus !== "connected") {
+    store.add({
+      direction: "system",
+      type: "lab",
+      label: "外部测试角色已切换",
+      payload: {
+        role: snapshot.selectedRole,
+        record_id: snapshot.recordId,
+        connection_attempt_id: snapshot.attemptId
+      }
+    });
+    if (!state.externalRoleStorageWarning && dom.externalRoleDialog?.open) {
+      window.setTimeout(() => closeExternalRoleDialog(), 180);
+    }
+  }
+}
+
+function renderExternalRoleDialog() {
+  if (!dom.externalRoleGrid) return;
+  const snapshot = state.externalRoleSwitchSnapshot || externalRoleSwitchController?.snapshot?.() || null;
+  const accountKey = normalizeExternalAccountKey(state.authProfile?.username || "");
+  const currentRecord = state.externalRoleRecord?.accountKey === accountKey
+    ? state.externalRoleRecord
+    : snapshot?.record?.accountKey === accountKey ? snapshot.record : null;
+  const currentRole = currentRecord?.selectedRole || state.selectedRole || "01";
+  const status = snapshot?.status || state.externalRoleSwitchStatus || "idle";
+  const busy = isExternalRoleSwitchBusy(status);
+
+  dom.externalRoleGrid.innerHTML = "";
+  for (const role of ROLE_OPTIONS) {
+    const current = role.code === currentRole;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "external-role-option";
+    button.dataset.roleCode = role.code;
+    button.dataset.testid = `external-role-option-${role.code}`;
+    button.disabled = busy || current;
+    button.setAttribute("aria-pressed", String(current));
+    if (current) button.setAttribute("aria-current", "true");
+
+    const name = document.createElement("strong");
+    name.textContent = role.label;
+    const code = document.createElement("span");
+    code.textContent = `角色 ${role.code}`;
+    button.append(name, code);
+    if (current) {
+      const badge = document.createElement("em");
+      badge.textContent = "当前";
+      button.appendChild(badge);
+    }
+    dom.externalRoleGrid.appendChild(button);
+  }
+
+  const postCommitReconnect = status === "connecting" || status === "awaiting_hello";
+  dom.closeExternalRoleDialogBtn.hidden = postCommitReconnect;
+  dom.cancelExternalRoleReconnectBtn.hidden = !postCommitReconnect;
+  dom.retryExternalRoleReconnectBtn.hidden = !["reconnect_error", "cancelled_disconnected"].includes(status);
+
+  const defaultMessage = ({
+    idle: `当前角色：${formatExternalRoleLabel(currentRole)}`,
+    preparing: "正在生成全新的测试设备身份…",
+    disconnecting: "正在结束旧会话并清理运行态…",
+    connecting: `正在连接 ${formatExternalRoleLabel(snapshot?.selectedRole || currentRole)}…`,
+    awaiting_hello: "连接已建立，正在等待服务器握手…",
+    connected: `已连接：${formatExternalRoleLabel(currentRole)}`,
+    reconnect_error: "连接失败，可使用当前身份重新连接。",
+    cancelled_disconnected: "已取消重连，当前角色已保存但尚未连接。",
+    error: "角色切换失败，旧身份保持不变。"
+  })[status] || snapshot?.message || "";
+  const statusParts = [snapshot?.message || defaultMessage, snapshot?.error || "", state.externalRoleStorageWarning].filter(Boolean);
+  dom.externalRoleDialogStatus.textContent = [...new Set(statusParts)].join(" · ");
+  if (["error", "reconnect_error"].includes(status) || snapshot?.error || state.externalRoleStorageWarning) {
+    dom.externalRoleDialogStatus.dataset.tone = "error";
+  } else if (status === "connected") {
+    dom.externalRoleDialogStatus.dataset.tone = "ok";
+  } else {
+    delete dom.externalRoleDialogStatus.dataset.tone;
+  }
+}
+
+function openExternalRoleDialog() {
+  if (state.authProfile?.audience !== "external" || !dom.externalRoleDialog || isExternalRoleSwitchBusy()) return;
+  closeAllMobileSheets({ immediate: true });
+  closeAllDrawers();
+  state.externalRoleDialogReturnFocus = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : dom.externalRoleSwitchBtn;
+  renderExternalRoleDialog();
+  if (!dom.externalRoleDialog.open) dom.externalRoleDialog.showModal();
+  window.setTimeout(() => {
+    const firstChoice = dom.externalRoleGrid.querySelector("button:not(:disabled)");
+    (firstChoice || dom.closeExternalRoleDialogBtn)?.focus({ preventScroll: true });
+  }, 0);
+}
+
+function closeExternalRoleDialog(options = {}) {
+  const { restoreFocus = true, force = false } = options;
+  if (!dom.externalRoleDialog?.open) return false;
+  const status = state.externalRoleSwitchStatus;
+  if (!force && (status === "connecting" || status === "awaiting_hello")) return false;
+  if (!force && (status === "preparing" || status === "disconnecting")) {
+    externalRoleSwitchController?.cancel("dialog_close");
+  }
+  dom.externalRoleDialog.close();
+  if (restoreFocus) {
+    const target = state.externalRoleDialogReturnFocus?.isConnected
+      ? state.externalRoleDialogReturnFocus
+      : dom.externalRoleSwitchBtn;
+    window.setTimeout(() => target?.focus({ preventScroll: true }), 0);
+  }
+  state.externalRoleDialogReturnFocus = null;
+  return true;
+}
+
+function updateExternalRoleActionLocks() {
+  const busy = isExternalRoleSwitchBusy();
+  if (dom.externalRoleSwitchBtn) dom.externalRoleSwitchBtn.disabled = busy;
+  if (dom.sendTextBtn) dom.sendTextBtn.disabled = busy;
+  if (dom.startMicBtn) dom.startMicBtn.disabled = busy;
+  if (dom.audioMicBtn) dom.audioMicBtn.disabled = busy;
+  if (dom.connectBtn) dom.connectBtn.disabled = busy;
+  if (dom.quickConnectBtn) {
+    const connectionState = dom.connectionPill?.dataset.state || "idle";
+    dom.quickConnectBtn.disabled = busy || connectionState === "connecting";
+  }
+}
+
+function handleExternalRoleStorageEvent(event) {
+  const profile = state.authProfile;
+  if (profile?.audience !== "external" || (event.storageArea && event.storageArea !== localStorage)) return;
+  const accountKey = normalizeExternalAccountKey(profile.username);
+  if (!accountKey || event.key !== getExternalRoleStorageKey(accountKey)) return;
+
+  if (event.newValue === null) {
+    externalRoleSwitchController?.invalidate("external_role_storage_removed");
+    resetRuntimeSession("external_role_storage_removed");
+    state.externalRoleRecord = null;
+    state.externalRoleStorageWarning = "当前账号的角色记录已在其他标签页删除，请刷新或重新登录";
+    renderAudienceStatus();
+    renderMobileAccountSheet();
+    renderExternalRoleDialog();
+    updateExternalRoleActionLocks();
+    return;
+  }
+
+  let candidate = null;
+  try {
+    candidate = normalizeExternalRoleRecord(JSON.parse(event.newValue), accountKey);
+  } catch {
+    candidate = null;
+  }
+  if (!candidate) {
+    state.externalRoleStorageWarning = "其他标签页写入了无效角色记录，当前页面未采用";
+    renderAudienceStatus();
+    renderExternalRoleDialog();
+    return;
+  }
+  if (!isCurrentExternalRoleRecord(localStorage, accountKey, candidate)) return;
+  externalRoleSwitchController?.adoptExternalRecord(candidate);
 }
 
 function scheduleMobileAccountHint() {
@@ -1281,6 +1568,27 @@ function bindEvents() {
   });
   dom.authLoginForm?.addEventListener("submit", handleAuthLogin);
   dom.logoutBtn?.addEventListener("click", handleAuthLogout);
+  dom.externalRoleSwitchBtn?.addEventListener("click", openExternalRoleDialog);
+  dom.closeExternalRoleDialogBtn?.addEventListener("click", () => closeExternalRoleDialog());
+  dom.externalRoleGrid?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-role-code]");
+    if (!button || button.disabled) return;
+    void externalRoleSwitchController.switchTo(button.dataset.roleCode);
+  });
+  dom.cancelExternalRoleReconnectBtn?.addEventListener("click", () => {
+    externalRoleSwitchController.cancel("user_cancel");
+  });
+  dom.retryExternalRoleReconnectBtn?.addEventListener("click", () => {
+    void externalRoleSwitchController.retryCurrentIdentity();
+  });
+  dom.externalRoleDialog?.addEventListener("click", (event) => {
+    if (event.target === dom.externalRoleDialog) closeExternalRoleDialog();
+  });
+  dom.externalRoleDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeExternalRoleDialog();
+  });
+  window.addEventListener("storage", handleExternalRoleStorageEvent);
   dom.debugLabBtn?.addEventListener("click", toggleInternalDebugMode);
   dom.mobileAccountBtn?.addEventListener("click", openMobileAccountSheet);
   dom.closeMobileAccountSheetBtn?.addEventListener("click", closeMobileAccountSheet);
@@ -1456,6 +1764,8 @@ function bindEvents() {
   dom.healthBtn?.addEventListener("click", checkHealth);
   dom.endpointHealthBtn?.addEventListener("click", checkHealth);
   dom.connectBtn.addEventListener("click", () => {
+    if (guardExternalRoleSwitchAction("连接")) return;
+    cancelAuthAutoConnect();
     const playbackUnlock = enableDownlinkPlaybackFromGesture("connect", { silent: true, allowUnmute: true });
     void connectAndHello({ playbackUnlock });
   });
@@ -2353,8 +2663,7 @@ function readIdentityFromInputs() {
   };
 }
 
-function buildHello() {
-  const identity = readIdentityFromInputs();
+function buildHello(identity = readIdentityFromInputs()) {
   const frameDuration = Number(dom.frameDurationInput.value);
   const sampleRate = Number(dom.sampleRateInput.value);
   const format = dom.audioFormatInput.value;
@@ -2429,6 +2738,9 @@ function buildHello() {
   merged.trace_id = identity.traceId;
   merged.client_ip = identity.clientIp;
   merged.audio_params = audioParams;
+  if (state.authProfile?.audience === "external") {
+    merged.device_mac = identity.deviceMac;
+  }
   return merged;
 }
 
@@ -2772,11 +3084,18 @@ function compactObject(value = {}) {
 }
 
 async function connectAndHello(options = {}) {
+  if (guardExternalRoleSwitchAction("连接")) return null;
+  cancelAuthAutoConnect();
+  const owner = options.runtimeOwner || captureRuntimeOwner();
   try {
-    await openWsAndSendHello(options);
+    return await openWsAndSendHello({ ...options, runtimeOwner: owner });
   } catch (error) {
+    if (isRuntimeCancellation(error) || !runtimeOwnerIsCurrent(owner)) return null;
     store.add({ direction: "system", type: "error", error: error.message });
-    updateConnectionState("error");
+    if (!wsClient.activeAttemptId || wsClient.readyState !== WebSocket.OPEN) {
+      updateConnectionState("error");
+    }
+    return null;
   }
 }
 
@@ -2785,37 +3104,88 @@ async function openWsAndSendHello(options = {}) {
     unlockPlayback = false,
     unlockReason = "connect",
     playbackUnlock = null,
-    allowUnmutePlayback = false
+    allowUnmutePlayback = false,
+    runtimeOwner = captureRuntimeOwner()
   } = options;
-  enforceLockedAuthEndpoint();
-  const identity = readIdentityFromInputs();
-  const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
-  const restBase = normalizeRestInput(dom.restBaseInput.value);
-  assertEndpointCompatibleWithPage(wsUrl, restBase);
+  assertRuntimeOwner(runtimeOwner);
+  const snapshot = createConnectionSnapshot();
   if (playbackUnlock) {
     await playbackUnlock;
   } else if (unlockPlayback) {
     await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
   }
+  assertRuntimeOwner(runtimeOwner);
+  const handle = beginConnectionAttempt(snapshot);
+  const result = await handle.ready;
+  assertRuntimeOwner(runtimeOwner);
+  return result;
+}
+
+function createConnectionSnapshot(identity = readIdentityFromInputs()) {
+  enforceLockedAuthEndpoint();
+  const identitySnapshot = structuredClone(identity);
+  const wsUrl = normalizeWsInput(dom.wsUrlInput.value);
+  const restBase = normalizeRestInput(dom.restBaseInput.value);
+  assertEndpointCompatibleWithPage(wsUrl, restBase);
+  return deepFreezeConnectionValue({
+    identity: identitySnapshot,
+    hello: structuredClone(buildHello(identitySnapshot)),
+    wsUrl,
+    restBase,
+    audioProfile: structuredClone(getDraftAudioProfile()),
+    playbackProfile: structuredClone(getDraftPlaybackProfile())
+  });
+}
+
+function deepFreezeConnectionValue(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreezeConnectionValue(child);
+  return Object.freeze(value);
+}
+
+function beginConnectionAttempt(snapshot) {
   downlinkAudioPlayer?.clear("connect", { keepUnlocked: true });
   resetConnectionLifecycle("connect");
-  await wsClient.connect(wsUrl, identity);
-  wsClient.sendJson(buildHello());
-  markBusinessActive("hello");
-  state.activeAudioProfile = getDraftAudioProfile();
-  state.activePlaybackProfile = getDraftPlaybackProfile();
-  updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
-  saveState();
+  const handle = wsClient.beginConnect(snapshot.wsUrl, snapshot.identity);
+  const ready = (async () => {
+    await handle.ready;
+    wsClient.sendJson(snapshot.hello, { attemptId: handle.attemptId });
+    markBusinessActive("hello");
+    state.activeAudioProfile = structuredClone(snapshot.audioProfile);
+    state.activePlaybackProfile = structuredClone(snapshot.playbackProfile);
+    updateClientPanelState({ valid: true, stale: false, text: dom.helloValidity.textContent });
+    saveState();
+    return Object.freeze({ attemptId: handle.attemptId, snapshot });
+  })();
+  ready.catch(() => {});
+  return Object.freeze({ attemptId: handle.attemptId, ready, snapshot });
+}
+
+function beginExternalRoleConnection(record) {
+  if (state.authProfile?.audience !== "external" || !record?.identity) {
+    throw new Error("外部角色连接上下文无效");
+  }
+  return beginConnectionAttempt(createConnectionSnapshot(record.identity));
 }
 
 async function ensureWsReadyForUserSend(label = "send", options = {}) {
+  if (guardExternalRoleSwitchAction(label)) {
+    throw new Error("角色切换中，请等待连接完成");
+  }
+  const runtimeOwner = options.runtimeOwner || captureRuntimeOwner();
+  assertRuntimeOwner(runtimeOwner);
   if (!lifecycleEndedByServer() && wsClient.isConnected) {
-    return true;
+    const attemptId = wsClient.activeAttemptId;
+    await waitForActiveSession(attemptId, options.timeoutMs || 12000);
+    assertRuntimeOwner(runtimeOwner);
+    return Object.freeze({ attemptId });
   }
   if (state.reconnectPromise) {
-    await state.reconnectPromise;
-    await waitForActiveSession(options.timeoutMs || 12000);
-    return true;
+    const result = await state.reconnectPromise;
+    assertRuntimeOwner(runtimeOwner);
+    await waitForActiveSession(result.attemptId, options.timeoutMs || 12000);
+    assertRuntimeOwner(runtimeOwner);
+    return result;
   }
   const canReconnect = lifecycleEndedByServer() || state.connectionLifecycle.status === "closed" || options.autoReconnect;
   if (!canReconnect || lifecycleManualDisconnect()) {
@@ -2832,18 +3202,23 @@ async function ensureWsReadyForUserSend(label = "send", options = {}) {
   });
   state.reconnectPromise = openWsAndSendHello({
     unlockPlayback: false,
-    unlockReason: options.unlockReason || "reconnect"
+    unlockReason: options.unlockReason || "reconnect",
+    runtimeOwner
   });
   try {
-    await state.reconnectPromise;
-    await waitForActiveSession(options.timeoutMs || 12000);
-    return true;
+    const result = await state.reconnectPromise;
+    assertRuntimeOwner(runtimeOwner);
+    await waitForActiveSession(result.attemptId, options.timeoutMs || 12000);
+    assertRuntimeOwner(runtimeOwner);
+    return result;
   } finally {
-    state.reconnectPromise = null;
+    if (runtimeOwnerIsCurrent(runtimeOwner)) state.reconnectPromise = null;
   }
 }
 
 async function sendText(options = {}) {
+  if (guardExternalRoleSwitchAction("发送文本")) return;
+  const runtimeOwner = captureRuntimeOwner();
   try {
     const {
       unlockPlayback = true,
@@ -2858,13 +3233,16 @@ async function sendText(options = {}) {
     } else if (unlockPlayback) {
       await enableDownlinkPlaybackFromGesture(unlockReason, { silent: true, allowUnmute: allowUnmutePlayback });
     }
-    await ensureWsReadyForUserSend("text", { source: "text", unlockReason });
-    wsClient.sendTextListen(text, wsClient.sessionId);
+    assertRuntimeOwner(runtimeOwner);
+    const connection = await ensureWsReadyForUserSend("text", { source: "text", unlockReason, runtimeOwner });
+    assertRuntimeOwner(runtimeOwner);
+    wsClient.sendTextListen(text, wsClient.sessionId, { attemptId: connection.attemptId });
     markBusinessActive("text");
     rememberExpectedInputText(text, 8000);
     dom.textMessageInput.value = "";
     autoResizeComposer();
   } catch (error) {
+    if (isRuntimeCancellation(error)) return;
     store.add({ direction: "system", type: "error", error: error.message });
   }
 }
@@ -3729,19 +4107,27 @@ async function runSmokeScenario() {
   }
 }
 
-function waitForActiveSession(timeoutMs = 12000) {
-  if (wsClient.sessionId) return Promise.resolve(wsClient.sessionId);
+function waitForActiveSession(attemptId = wsClient.activeAttemptId, timeoutMs = 12000) {
+  const targetAttemptId = Number(attemptId || 0);
+  if (!targetAttemptId) return Promise.reject(new Error("没有可等待的 WebSocket connection attempt"));
+  if (wsClient.activeAttemptId === targetAttemptId && wsClient.sessionId) {
+    return Promise.resolve(wsClient.sessionId);
+  }
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       unsubscribe();
-      reject(new Error(`等待 hello session 超时 ${timeoutMs}ms`));
+      wsClient.disconnect({ attemptId: targetAttemptId, reason: "hello_timeout", silent: true });
+      const error = new Error(`等待 hello session 超时 ${timeoutMs}ms`);
+      error.code = "HELLO_TIMEOUT";
+      error.attemptId = targetAttemptId;
+      reject(error);
     }, timeoutMs);
     const unsubscribe = store.subscribe((event) => {
-      if (!event) return;
-      if (wsClient.sessionId || (event.payload?.type === "hello" && event.payload.session_id)) {
+      if (!event || Number(event.connection_attempt_id || 0) !== targetAttemptId) return;
+      if (event.payload?.type === "hello" && event.payload.session_id) {
         window.clearTimeout(timer);
         unsubscribe();
-        resolve(wsClient.sessionId || event.payload.session_id);
+        resolve(event.payload.session_id);
       }
     });
   });
@@ -4024,9 +4410,13 @@ async function generateAndStreamTts() {
 }
 
 async function startMicInput(options = {}) {
+  if (guardExternalRoleSwitchAction("开启麦克风")) return;
+  const runtimeOwner = captureRuntimeOwner();
   const action = async () => {
-    await ensureWsReadyForUserSend("mic", { source: "mic" });
+    await ensureWsReadyForUserSend("mic", { source: "mic", runtimeOwner });
+    assertRuntimeOwner(runtimeOwner);
     await audioStreamer.startMic();
+    assertRuntimeOwner(runtimeOwner);
     addAudioInputCue({
       source: "mic",
       label: "客户端 麦克风",
@@ -4124,6 +4514,7 @@ function updateMicButtonState(value = audioStreamer?.mode || "idle") {
     button.setAttribute("aria-label", active ? "停止全双工" : "开始全双工");
     button.title = active ? "停止麦克风全双工推流" : "点击开启麦克风全双工推流";
   }
+  updateExternalRoleActionLocks();
 }
 
 function addAudioInputCue({ source, label, text }) {
@@ -4169,6 +4560,7 @@ async function runAudioAction(action) {
   try {
     await action();
   } catch (error) {
+    if (error?.code === "AUDIO_OPERATION_CANCELLED" || isRuntimeCancellation(error)) return;
     store.add({ direction: "system", type: "audio", error: error.message });
     dom.audioStateLabel.textContent = "异常";
   }
@@ -5510,6 +5902,7 @@ function updateConnectionState(stateName) {
   dom.connectionPill.dataset.state = stateName;
   dom.connectionLabel.textContent = labels[stateName] || stateName;
   updateQuickConnectionButton(stateName);
+  updateExternalRoleActionLocks();
   dom.clientHandshakeLabel.textContent = displayConnectionState(stateName);
   dom.clientSessionLabel.textContent = wsClient.sessionId ? shortText(wsClient.sessionId) : "未握手";
   if (stateName === "idle") {
@@ -5521,9 +5914,16 @@ function updateConnectionState(stateName) {
   }
   updateClientPanelState({ valid: !dom.helloPreview.closest(".preview-card")?.classList.contains("invalid"), stale: false, text: dom.helloValidity.textContent });
   renderInspectorContext();
+  renderEvidenceCards();
 }
 
 async function handleQuickConnectionAction() {
+  if (guardExternalRoleSwitchAction("快速连接")) return;
+  cancelAuthAutoConnect();
+  if (["reconnect_error", "cancelled_disconnected"].includes(state.externalRoleSwitchStatus)) {
+    await externalRoleSwitchController.retryCurrentIdentity();
+    return;
+  }
   const stateName = dom.connectionPill?.dataset.state || "idle";
   if (stateName === "connecting") return;
   if (stateName === "connected" || (wsClient.isConnected && stateName !== "ended")) {
@@ -5546,7 +5946,7 @@ function updateQuickConnectionButton(stateName = "idle") {
   };
   dom.quickConnectBtn.dataset.state = stateName;
   dom.quickConnectBtn.textContent = labels[stateName] || "连接";
-  dom.quickConnectBtn.disabled = stateName === "connecting";
+  dom.quickConnectBtn.disabled = stateName === "connecting" || isExternalRoleSwitchBusy();
 }
 
 function applyUrlParams() {
@@ -5640,20 +6040,19 @@ function profilesEqual(a, b) {
 }
 
 function saveState() {
-  let persistedIdentity = null;
-  if (state.authProfile?.audience === "external") {
-    try {
-      persistedIdentity = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null")?.identity || null;
-    } catch {
-      persistedIdentity = null;
-    }
+  const external = state.authProfile?.audience === "external";
+  let previous = {};
+  try {
+    previous = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") || {};
+  } catch {
+    previous = {};
   }
   const data = {
     wsUrl: normalizeWsInput(dom.wsUrlInput?.value),
     restBase: normalizeRestInput(dom.restBaseInput?.value),
     clientTab: state.clientTab,
-    selectedRole: state.selectedRole,
-    identity: state.authProfile?.audience === "external" ? persistedIdentity : readIdentityFromInputsSafe(),
+    selectedRole: external ? previous.selectedRole : state.selectedRole,
+    identity: external ? previous.identity : readIdentityFromInputsSafe(),
     audio: {
       format: dom.audioFormatInput?.value,
       sampleRate: dom.sampleRateInput?.value,
@@ -5691,7 +6090,15 @@ function saveState() {
     customEndpointConfigs: state.customEndpointConfigs,
     customProtocolTemplates: state.customProtocolTemplates
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  if (external && !ROLE_CODES.includes(data.selectedRole)) delete data.selectedRole;
+  if (external && !data.identity) delete data.identity;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    if (external) {
+      state.externalRoleStorageWarning ||= "角色已切换，但浏览器未能保存；刷新后会重置";
+    }
+  }
 }
 
 function restoreState() {
@@ -6050,6 +6457,7 @@ function scenarioExpectedEvidence(scenario = {}) {
 }
 
 function scenarioPrecondition(scenario = {}) {
+  if (scenario.precondition) return `前置: ${scenario.precondition}`;
   if (scenario.builtin || scenario.auto_connect !== false) return "前置: 自动连接";
   if ((scenario.steps || []).some((step) => step.action === "connect_hello" || step.action === "connect_ws")) return "前置: 场景内连接";
   return "前置: 需要当前会话";

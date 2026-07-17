@@ -1,0 +1,75 @@
+{
+  "id": "intent-v2-story-label-split",
+  "name": "意图 V2 故事标签拆分",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验证 Intent V2 新故事协议直接返回本地故事/故事创作模式 label 后，服务端按非普通闲聊路径分流，故事 label 不再依赖 addition。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.intent-v2-story-label-split-local",
+      "label": "故事 · 本地故事",
+      "description": "触发本地故事后，应以本地故事 label 路由，读取故事库并分段下发 TTS。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "给我讲一个本地故事，直接开始讲就好。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|v2_route_start",
+            "本地故事",
+            "intent|v2_story_local",
+            "content_chars"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-v2-story-label-split-create",
+      "label": "故事 · 创作模式",
+      "description": "触发故事创作后，应以故事创作模式 label 路由，注入创作 instruction 后继续 LLM 主流程。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请创作一个关于月亮和机器人一起找星星的短故事。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "intent|v2_route_start",
+            "故事创作模式",
+            "intent|v2_story_create"
+          ],
+          "any_keywords": [
+            "intent|tool_observation_injected",
+            "intent|v2_inject_context"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

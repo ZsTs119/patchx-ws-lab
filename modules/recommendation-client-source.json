@@ -1,0 +1,97 @@
+{
+  "id": "recommendation-client-source",
+  "name": "推荐话题 client_source",
+  "area": "记忆与推荐",
+  "version": "1.0.0",
+  "description": "验证 recommendation.api_url 的 POST /recommend/story 请求会按 Hello client_source 传递 app/hardware，并且未传时兜底 hardware。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.recommendation-client-source-app",
+      "label": "推荐 · App 来源透传",
+      "description": "发送 client_source=app 的 Hello，完成一轮对话后检查 rec_api_request payload 中包含 client_source=app。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请用一句话回复我，用来验收推荐话题来源参数。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "rec_api_request",
+            "\\\"client_source\\\":\\\"app\\\""
+          ],
+          "timeout_ms": 45000,
+          "limit": 800
+        },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    },
+    {
+      "id": "module.recommendation-client-source-hardware",
+      "label": "推荐 · Hardware 来源透传",
+      "description": "发送 client_source=hardware 的 Hello，完成一轮对话后检查 rec_api_request payload 中包含 client_source=hardware。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请用一句话回复我，用来验收硬件推荐话题来源参数。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "rec_api_request",
+            "\\\"client_source\\\":\\\"hardware\\\""
+          ],
+          "timeout_ms": 45000,
+          "limit": 800
+        },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    },
+    {
+      "id": "module.recommendation-client-source-default",
+      "label": "推荐 · 未传来源兜底",
+      "description": "发送不包含 client_source 的 Hello，完成一轮对话后检查 rec_api_request payload 兜底为 client_source=hardware。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello" },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请用一句话回复我，用来验收默认推荐话题来源参数。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 60000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "rec_api_request",
+            "\\\"client_source\\\":\\\"hardware\\\""
+          ],
+          "timeout_ms": 45000,
+          "limit": 800
+        },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    }
+  ]
+}

@@ -376,7 +376,7 @@
 .audience-status-strip {
   min-width: 0;
   display: none;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
 }
@@ -410,6 +410,11 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.audience-status-strip > div[data-warning="true"] {
+  border-color: rgba(201, 60, 55, 0.38);
+  background: rgba(255, 245, 244, 0.82);
 }
 
 .app-shell.audience-external .topbar {
@@ -776,7 +781,7 @@
 
   .audience-status-strip {
     grid-area: status;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .top-status-strip .top-action,

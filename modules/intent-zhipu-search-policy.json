@@ -1,0 +1,98 @@
+{
+  "id": "intent-zhipu-search-policy",
+  "name": "意图 V2 智普搜索策略",
+  "area": "意图",
+  "version": "1.0.0",
+  "description": "验收娱乐吃瓜、新闻热搜、问答百科三类 Intent V2 路由的智普 engine/recency 策略、TTS 回复及 QA 独立灰度边界。启用场景会产生少量真实搜索调用。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.intent-zhipu-search-policy-news",
+      "label": "智普 · 新闻热搜 oneDay",
+      "description": "新闻热搜应使用 search_pro_quark + oneDay；搜索成功进入 tool observation，失败或空结果只播本地 fallback，不启动第二条普通 LLM 回复。",
+      "precondition": "本地或 Nacos 新连接配置 zhipu_search_enabled=true、zhipu_search_engine=search_pro_quark、zhipu_search_recency_filter=oneDay，意图服务可返回 新闻热搜/TRENDING_NEWS。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "帮我查一下今天最受关注的新闻热搜，只说最重要的一条。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "log_expect", "keywords": ["intent|v2_route_start", "新闻热搜"], "timeout_ms": 120000 },
+        { "action": "log_expect", "keywords": ["intent|v2_zhipu_search_request", "search_pro_quark", "oneDay"], "timeout_ms": 120000 },
+        { "action": "log_expect", "any_keywords": ["intent|v2_zhipu_search_ok", "intent|v2_zhipu_search_fallback"], "timeout_ms": 120000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-zhipu-search-policy-gossip",
+      "label": "智普 · 娱乐吃瓜 oneDay",
+      "description": "娱乐吃瓜与新闻热搜共享实时策略和本地失败直出语义。",
+      "precondition": "同新闻场景，且意图服务可返回 娱乐吃瓜/ENTERTAINMENT_GOSSIP。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "今天娱乐圈有什么刚发生的热门消息？只说一条。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "log_expect", "keywords": ["intent|v2_route_start", "娱乐吃瓜"], "timeout_ms": 120000 },
+        { "action": "log_expect", "keywords": ["intent|v2_zhipu_search_request", "search_pro_quark", "oneDay"], "timeout_ms": 120000 },
+        { "action": "log_expect", "any_keywords": ["intent|v2_zhipu_search_ok", "intent|v2_zhipu_search_fallback"], "timeout_ms": 120000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-zhipu-search-policy-qa",
+      "label": "智普 · 问答百科 noLimit",
+      "description": "问答百科应命中 QA 独立开关并强制 noLimit；搜索失败时仍允许原 LLM 降级，绝不误用新闻兜底文案。",
+      "precondition": "zhipu_search_enabled=true、zhipu_qa_search_enabled=true，意图服务可返回 问答百科/QA_ENCYCLOPEDIA；配置变更后使用新连接。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "什么是量子纠缠？请用一句容易理解的话解释。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "log_expect", "keywords": ["intent|v2_route_start", "问答百科"], "timeout_ms": 120000 },
+        { "action": "log_expect", "keywords": ["intent|v2_zhipu_search_request", "search_pro_quark", "noLimit"], "timeout_ms": 120000 },
+        { "action": "log_expect", "any_keywords": ["intent|v2_zhipu_search_ok", "intent|v2_zhipu_search_response", "intent|v2_zhipu_search_failed"], "timeout_ms": 120000 },
+        { "action": "log_expect_absent", "keywords": ["intent|v2_zhipu_search_fallback"], "timeout_ms": 1500 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.intent-zhipu-search-policy-qa-disabled",
+      "label": "智普 · QA 灰度关闭",
+      "description": "QA 独立开关关闭时，不发 provider 请求、不播搜索提示，仍由原 LLM 完成回复。",
+      "precondition": "临时设置 zhipu_qa_search_enabled=false 并新建连接；验收后恢复。该场景不应产生智普调用。",
+      "stability": "beta",
+      "suite": "ops",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "什么是量子纠缠？请简单解释。" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "log_expect", "keywords": ["intent|v2_zhipu_search_disabled", "qa_disabled"], "timeout_ms": 120000 },
+        { "action": "log_expect_absent", "keywords": ["intent|v2_zhipu_search_request", "search_hint.triggered"], "timeout_ms": 1500 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "timeout_ms": 120000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

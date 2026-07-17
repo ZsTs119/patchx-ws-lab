@@ -82,11 +82,23 @@ server {
     root /srv/ws-lab;
     index index.html;
 
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        expires -1;
+    }
+
+    location ~* ^/(?:src|styles|modules)/.*\.(?:js|css|json)$ {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        expires -1;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 ```
+
+The release version is included in both the entry-page asset URLs and local ES Module imports. These headers make a normal refresh or later visit revalidate the entry page, first-party scripts, and module manifests. If a CDN or gateway sits in front of Nginx, make sure it preserves these headers. A tab that remains open is not force-reloaded.
 
 For an HTTPS deployment, prefer serving WS Lab, WebSocket, Dev REST, and WS Lab auth through the same gateway. This avoids most CORS and mixed-content issues.
 
@@ -185,7 +197,18 @@ Account conventions:
 
 - External English tester: `px_ext_en`, locked to the English Sprite environment and auto-connects after login.
 - External Japanese tester: `px_ext_ja`, locked to the Japanese Sprite environment and auto-connects after login.
+- External Chinese tester: `px_ext_zh`, locked to the Sprite test environment and auto-connects after login.
 - Internal users: use employee pinyin or company account prefix, for example `zhangsan`. Internal users enter the clean conversation page first and can open the full debug console through `调试台`.
+
+### External tester role switching
+
+All three external tester accounts can use `切换角色` in the top bar to switch among 小格 (01), 小梦 (02), 小燃 (03), 小忧 (04), 小慌 (05), and 小安 (06). The first login defaults to 小格. The current role appears in the desktop Lab card and in the Lab row of the mobile `账号与设置` sheet.
+
+- Role and test identity are stored separately per external account in the current browser; external accounts never share one Device ID.
+- Selecting a different role ends the old session, creates a fresh Device ID, `user_id`, MAC, and `trace_id`, then reconnects to the same account-bound environment.
+- Selecting the current role is a no-op. `重新连接` after a failure reuses the identity already created for that switch.
+- Other tabs in the same browser adopt the latest role without auto-connecting, so two tabs do not immediately compete for the same test identity.
+- The record is WS Lab browser-local state, not an AI Server user record. Clearing site data resets the account to 小格 (01), and the URL `role` parameter does not override an external account.
 
 When running locally on `127.0.0.1` / `localhost`, WS Lab requests `http://127.0.0.1:8787/api/ws-lab-auth` by default. If the sidecar is running, the login page is shown; if it is not running, WS Lab automatically enters local internal mode for lightweight development.
 
@@ -314,8 +337,8 @@ If `/api/v1/dev/ws-lab` is not deployed, diagnosis, logs, rounds, and scenario e
 
 1. Log in. External testers use the language-specific account; internal users use employee accounts.
 2. Internal users may select or create an environment. External users are locked to the account-bound environment.
-3. Internal users may choose role `01` to `06`; open `调试台` and the client drawer for random users or advanced Hello settings.
-4. Click `连接` to open WebSocket and send Hello. External English/Japanese accounts auto-connect after login.
+3. External testers may click `切换角色`. Internal users may choose role `01` to `06` in debug mode and use the client drawer for random users or advanced Hello settings.
+4. Click `连接` to open WebSocket and send Hello. All three external accounts auto-connect after login and after an actual role switch.
 5. Type text in the bottom composer. Enter sends; Shift+Enter inserts a newline.
 6. Click `全双工` for microphone input. Internal debug mode can also open advanced audio sources for generated speech streaming, WAV streaming, and silence diagnostics.
 7. Internal debug mode can open `协议` for templates and `诊断` for overview, rounds, logs, and scenarios.

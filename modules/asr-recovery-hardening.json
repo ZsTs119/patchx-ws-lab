@@ -1,0 +1,59 @@
+{
+  "id": "asr-recovery-hardening",
+  "name": "ASR 恢复边界加固",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 ASR 恢复边界加固后，正常语音主流程仍能完成 ASR/LLM/TTS 闭环，provider generation/release 证据存在，且不会误发 service_status failed。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-recovery-hardening-normal-audio",
+      "label": "ASR · 恢复边界正常语音闭环",
+      "description": "使用服务端 TTS 生成真实上行语音，验收 ASR stt、TTS 下行音频、generation bind、listen stop release 和无失败状态。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，我想验证一下语音识别恢复边界是否稳定，请简单回复一句。",
+          "duration_ms": 1800,
+          "trailing_silence_ms": 1200,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "asr_generation|bind",
+            "asr_release.listen_stop"
+          ],
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "latency_round_summary",
+            "OnAsrResult",
+            "[ASR] 最终识别结果(definite=true)"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1500 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    }
+  ]
+}

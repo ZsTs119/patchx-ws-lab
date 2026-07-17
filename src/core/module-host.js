@@ -1,4 +1,4 @@
-const WS_LAB_ASSET_VERSION = "20260526-ja-tts-split2";
+const WS_LAB_ASSET_VERSION = new URL(import.meta.url).searchParams.get("v") || "unversioned";
 
 export class ModuleHost {
   constructor({ store }) {

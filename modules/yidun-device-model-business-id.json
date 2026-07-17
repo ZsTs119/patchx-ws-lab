@@ -1,0 +1,42 @@
+{
+  "id": "yidun-device-model-business-id",
+  "name": "易盾设备型号业务ID",
+  "area": "内容审核",
+  "version": "1.0.0",
+  "description": "验证易盾审核按 device_id 第 3-4 位解析设备型号，并在未配置型号映射时回退默认 business_id，同时日志只暴露业务ID哈希。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.yidun-device-model-business-id-default-fallback",
+      "label": "易盾 · 设备型号默认回退",
+      "description": "使用角色 01 设备发起一轮文本对话，验收易盾审核结构化日志包含 device_model_code=01、business_id_source=default、business_id_hash=sha256:*。",
+      "precondition": "服务端 YidunContentModeration.enabled=true，且未为 01 配置 device_model_business_id 专属业务ID。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "你好，请用一句话回复，用于验证易盾审核业务ID选择日志。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 45000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "[YidunModeration] moderation_result",
+            "\"device_model_code\":\"01\"",
+            "\"business_id_source\":\"default\"",
+            "\"business_id_hash\":\"sha256:"
+          ],
+          "timeout_ms": 90000,
+          "limit": 1000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    }
+  ]
+}

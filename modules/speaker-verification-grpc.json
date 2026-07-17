@@ -1,0 +1,47 @@
+{
+  "id": "speaker-verification-grpc",
+  "name": "声纹 gRPC",
+  "area": "安全与身份",
+  "version": "1.0.0",
+  "description": "验证会话级声纹校验通过 gRPC query 设备声纹，并在 ASR 后进入 verify 或按 query 结果跳过。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.speaker-verification-grpc-smoke",
+      "label": "声纹 · gRPC query/verify 冒烟",
+      "description": "连接后应产生 transport=grpc 的声纹 query 日志；发送一段语音后应产生 verify_start 或 verify_skip，确认声纹链路参与主流程放行。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 16000, "frame_duration": 20 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": ["sv|query_start", "transport=grpc", "bu_id=kikigo_cn"],
+          "timeout_ms": 12000
+        },
+        {
+          "action": "stream_tts",
+          "text": "你好，这是声纹 gRPC 验收场景，请识别这段语音。",
+          "duration_ms": 1800,
+          "trailing_silence_ms": 1600,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "asr" },
+        {
+          "action": "log_expect",
+          "any_keywords": ["sv|verify_start", "sv|verify_skip"],
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

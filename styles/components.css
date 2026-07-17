@@ -1061,6 +1061,114 @@ textarea {
   font-weight: 650;
 }
 
+.external-role-dialog {
+  width: min(460px, calc(100vw - 40px));
+  overflow: hidden;
+}
+
+.external-role-dialog-description {
+  margin: 0;
+  padding: 16px 18px 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.external-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.external-role-option {
+  position: relative;
+  min-width: 0;
+  min-height: 88px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 13px 12px;
+  text-align: left;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.76);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.external-role-option:not(:disabled):hover {
+  border-color: rgba(17, 19, 24, 0.32);
+  box-shadow: 0 12px 26px rgba(16, 18, 20, 0.1);
+  transform: translateY(-1px);
+}
+
+.external-role-option strong,
+.external-role-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-role-option strong {
+  font-size: 16px;
+  font-weight: 760;
+}
+
+.external-role-option span {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.external-role-option em {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border-radius: 999px;
+  padding: 3px 6px;
+  color: #fff;
+  background: rgba(17, 19, 24, 0.9);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.external-role-option[aria-current="true"] {
+  border-color: #111318;
+  background: rgba(17, 19, 24, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(17, 19, 24, 0.06);
+  opacity: 1;
+}
+
+.external-role-option:disabled:not([aria-current="true"]) {
+  opacity: 0.56;
+}
+
+.external-role-dialog-status {
+  min-height: 36px;
+  padding: 0 18px 12px;
+  line-height: 1.45;
+}
+
+.external-role-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 12px 18px 16px;
+}
+
+.external-role-dialog-actions:empty,
+.external-role-dialog-actions:not(:has(button:not([hidden]))) {
+  display: none;
+}
+
+.external-role-dialog-actions button[hidden] {
+  display: none;
+}
+
 .payload-dialog .json-preview {
   border: 0;
   border-radius: 0 0 var(--radius) var(--radius);
@@ -2195,6 +2303,55 @@ textarea {
 
   .app-shell.audience-external .top-actions .logout-button {
     display: none;
+  }
+
+  .app-shell.audience-external .top-actions .external-role-switch-button {
+    display: inline-flex;
+    min-width: 76px;
+    justify-content: center;
+    color: var(--text);
+    border-color: rgba(17, 19, 24, 0.1);
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .external-role-dialog {
+    width: 100vw;
+    max-width: none;
+    max-height: min(82vh, 680px);
+    inset: auto 0 0;
+    margin: 0;
+    border-width: 1px 0 0;
+    border-radius: 20px 20px 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .external-role-dialog[open] {
+    animation: mobile-sheet-up 190ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .external-role-dialog-head::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 38px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(17, 19, 24, 0.18);
+    transform: translateX(-50%);
+  }
+
+  .external-role-dialog-head {
+    position: relative;
+    padding-top: 22px;
+  }
+
+  .external-role-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .external-role-option {
+    min-height: 78px;
   }
 }
 

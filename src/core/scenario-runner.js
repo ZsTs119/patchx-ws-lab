@@ -211,6 +211,10 @@ export class ScenarioRunner {
         } else if (step.action === "wait_ws") {
           const event = await this.waitFor((candidate) => matchesEvent(candidate, step), step.timeout_ms || 8000);
           this.markLastStep(steps, "pass", event.type);
+        } else if (step.action === "expect_ws_interval") {
+          const interval = await this.expectWsInterval(step);
+          const noteKey = step.note_key || "interval_ms";
+          this.markLastStep(steps, "pass", `${noteKey}=${interval.deltaMs}`);
         } else if (step.action === "expect_no_ws") {
           await this.expectNoEvent(step);
           this.markLastStep(steps, "pass");
@@ -278,6 +282,30 @@ export class ScenarioRunner {
             matches.push(`${matched.keyword}:${matched.count}`);
           }
           this.markLastStep(steps, "pass", matches.join(", "));
+        } else if (step.action === "log_expect_absent") {
+          if (!this.hasCapability("logs")) {
+            degraded = true;
+            warnings.push("日志证据不可用，log_expect_absent 已跳过。");
+            this.markLastStep(steps, "skipped", "日志证据不可用");
+            continue;
+          }
+          if (step.timeout_ms) {
+            await sleep(step.timeout_ms);
+          }
+          const keywords = normalizeKeywords(step);
+          if (!keywords.length) {
+            throw new Error("log_expect_absent requires keyword or keywords");
+          }
+          const matches = [];
+          for (const keyword of keywords) {
+            const logs = await this.api.logs({ ...this.logFiltersForStep(step), keyword, limit: step.limit || 500 });
+            const matched = logs.summary?.total_matched ?? logs.entries?.length ?? 0;
+            if (matched > 0) {
+              throw new Error(`unexpected log keyword: ${keyword}`);
+            }
+            matches.push(`${keyword}:0`);
+          }
+          this.markLastStep(steps, "pass", matches.join(", "));
         } else if (step.action === "rest_request") {
           const resolvedStep = this.resolve(step);
           const response = await this.api.request(resolvedStep.path, {
@@ -343,6 +371,58 @@ export class ScenarioRunner {
         }
       });
     });
+  }
+
+  async expectWsInterval(step = {}) {
+    const fromStep = step.from || step.start;
+    const toStep = step.to || step.end;
+    if (!fromStep || !toStep) {
+      throw new Error("expect_ws_interval requires from and to");
+    }
+
+    let fromEvent = this.findExistingEvent(fromStep);
+    if (!fromEvent) {
+      fromEvent = await this.waitFor((candidate) => matchesEvent(candidate, fromStep), step.from_timeout_ms || step.timeout_ms || 8000);
+    }
+    const fromAt = Date.parse(fromEvent.at || "");
+    if (!Number.isFinite(fromAt)) {
+      throw new Error("expect_ws_interval from event has invalid timestamp");
+    }
+
+    let toEvent = this.findExistingEvent(toStep, fromAt);
+    if (!toEvent) {
+      toEvent = await this.waitFor((candidate) => {
+        if (!matchesEvent(candidate, toStep)) return false;
+        const candidateAt = Date.parse(candidate.at || "");
+        return Number.isFinite(candidateAt) && candidateAt >= fromAt;
+      }, step.to_timeout_ms || step.timeout_ms || 8000);
+    }
+
+    const toAt = Date.parse(toEvent.at || "");
+    if (!Number.isFinite(toAt)) {
+      throw new Error("expect_ws_interval to event has invalid timestamp");
+    }
+    const deltaMs = toAt - fromAt;
+    if (step.min_ms !== undefined && deltaMs < Number(step.min_ms)) {
+      throw new Error(`WS interval too short: ${deltaMs}ms < ${step.min_ms}ms`);
+    }
+    if (step.max_ms !== undefined && deltaMs > Number(step.max_ms)) {
+      throw new Error(`WS interval too long: ${deltaMs}ms > ${step.max_ms}ms`);
+    }
+    return { deltaMs, fromAt: fromEvent.at, toAt: toEvent.at };
+  }
+
+  findExistingEvent(expectation, notBeforeMs = 0) {
+    const events = Array.isArray(this.store.events) ? this.store.events : [];
+    return events
+      .filter((event) => matchesEvent(event, expectation))
+      .filter((event) => {
+        if (!notBeforeMs) return true;
+        const at = Date.parse(event.at || "");
+        return Number.isFinite(at) && at >= notBeforeMs;
+      })
+      .sort((a, b) => Date.parse(a.at || "") - Date.parse(b.at || ""))
+      .at(0) || null;
   }
 
   withSession(payload) {
@@ -565,6 +645,19 @@ function matchesEvent(event, step) {
   if (step.payload && typeof step.payload === "object") {
     for (const [key, value] of Object.entries(step.payload)) {
       if (event.payload?.[key] !== value) return false;
+    }
+  }
+  for (const key of normalizeStringList(step.payload_non_empty)) {
+    if (!String(event.payload?.[key] || "").trim()) return false;
+  }
+  if (step.payload_not && typeof step.payload_not === "object") {
+    for (const [key, value] of Object.entries(step.payload_not)) {
+      if (event.payload?.[key] === value) return false;
+    }
+  }
+  if (step.payload_matches && typeof step.payload_matches === "object") {
+    for (const [key, pattern] of Object.entries(step.payload_matches)) {
+      if (!new RegExp(String(pattern)).test(String(event.payload?.[key] || ""))) return false;
     }
   }
   return true;

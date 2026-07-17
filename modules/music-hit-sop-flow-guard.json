@@ -1,0 +1,48 @@
+{
+  "id": "music-hit-sop-flow-guard",
+  "name": "音乐命中 SOP Flow 防护",
+  "area": "音频链路",
+  "version": "1.0.0",
+  "description": "验证命中本地音乐后，先稳定下发提示语 TTS，再触发 playmusic 和 music 音频链路，并通过 flow_id 日志确认旧文本任务不会误清待播放音乐。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.music-hit-sop-flow-guard-random",
+      "label": "音乐 · 提示语后固定触发播放",
+      "description": "发送泛化唱歌请求，验收提示语 TTS、playmusic、music TTS start/sentence_start/binary/stop 的固定顺序，并检查 pending music flow 日志。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "给我唱首歌" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload": { "tts_type": "text" }, "payload_text_non_empty": true, "timeout_ms": 60000 },
+        { "action": "wait_ws", "type": "playmusic", "payload": { "tts_type": "music", "state": "start" }, "timeout_ms": 90000 },
+        { "action": "wait_ws", "type": "tts", "state": "start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "expect_binary", "timeout_ms": 15000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "payload": { "tts_type": "music" }, "timeout_ms": 120000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_pending|hint_enqueued",
+            "flow_id=",
+            "music_pending|trigger",
+            "pending_music_start",
+            "music_pending|clear reason=triggered",
+            "media_playback|active",
+            "media_playback|clear reason=music_complete"
+          ],
+          "any_keywords": [
+            "source=v2_cmd",
+            "source=local_tool"
+          ],
+          "timeout_ms": 120000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,171 @@
+{
+  "id": "tts-downlink-stall-diagnostics",
+  "name": "TTS 下发卡顿诊断",
+  "area": "音频",
+  "version": "1.0.2",
+  "description": "验证 TTS 文件 ready 到首帧下发之间的细分指标，并覆盖 quick reply cache 命中、短句下发和 provider cancel 边界不会误发 service_status 失败。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.tts-downlink-stall-diagnostics-metrics",
+      "label": "TTS · 下发链路指标闭环",
+      "description": "触发一轮普通 TTS，验收 latency_round_summary 中输出 tts_audio_source、audio_send_wait_ms、audio_prepare_ms、sentence_start_to_first_audio_ms、first_audio_write_block_ms 等细分字段。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "audio_params.format": "opus",
+            "audio_params.sample_rate": 16000,
+            "audio_params.channels": 1,
+            "audio_params.frame_duration": 60,
+            "playback_audio_params.format": "opus",
+            "playback_audio_params.sample_rate": 24000,
+            "playback_audio_params.channels": 1,
+            "playback_audio_params.frame_duration": 40
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "mark_binary_cadence" },
+        {
+          "action": "send_text",
+          "text": "请简短回复一句中文，用来验证 TTS 下发链路的延迟指标。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 45000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_end", "timeout_ms": 70000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary",
+            "tts_audio_source",
+            "tts_ready_to_audio_enqueue_ms",
+            "audio_send_wait_ms",
+            "audio_pre_prepare_wait_ms",
+            "audio_prepare_ms",
+            "audio_prepare_to_sentence_start_ms",
+            "sentence_start_to_first_audio_ms",
+            "first_audio_write_block_ms"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.tts-downlink-stall-diagnostics-quick-reply-cache",
+      "label": "TTS · quick reply cache 命中仍下发",
+      "description": "需要服务端启用 quick_reply，并配置 quick_reply_words。连续两次语音唤醒，第一次允许生成缓存，第二次应命中 quick reply cache；验收命中后仍有 sentence_start、音频帧、sentence_end、stop。默认本机配置 quick_reply=false 时，本场景会停在 quick_reply_cache_hit 日志校验。",
+      "precondition": "服务端 quick_reply=true 且 quick_reply_words 包含本场景可触发的稳定回复",
+      "stability": "manual-config",
+      "suite": "manual",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好小智",
+          "duration_ms": 1200,
+          "trailing_silence_ms": 360,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 1,
+          "expect_during": [
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_end", "timeout_ms": 90000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "stream_tts",
+          "text": "你好小智",
+          "duration_ms": 1200,
+          "trailing_silence_ms": 360,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 1,
+          "expect_during": [
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_end", "timeout_ms": 90000 },
+            { "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 }
+          ]
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "quick_reply_cache_hit",
+            "tts_audio_source",
+            "quick_reply_cache"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    },
+    {
+      "id": "module.tts-downlink-stall-diagnostics-no-false-failure",
+      "label": "TTS · 短句下发无误报失败",
+      "description": "发送短句约束回复，验收 sentence_start、Binary 音频、sentence_end、complete stop 闭环，同时确认同一轮不会收到 service_status failed。若服务端启用投机 TTS，本场景也用于覆盖 stale/loser cancel 不误报 synthesize_failed。",
+      "precondition": "普通本地服务可直接运行；启用 L0/L1/L2 投机时可覆盖更多 stale candidate 边界。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "opus", "sample_rate": 16000, "frame_duration": 60 } },
+        { "action": "set_playback_profile", "profile": { "format": "opus", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        {
+          "action": "send_hello",
+          "set": {
+            "client_source": "app",
+            "audio_params.format": "opus",
+            "audio_params.sample_rate": 16000,
+            "audio_params.channels": 1,
+            "audio_params.frame_duration": 60,
+            "playback_audio_params.format": "opus",
+            "playback_audio_params.sample_rate": 24000,
+            "playback_audio_params.channels": 1,
+            "playback_audio_params.frame_duration": 40
+          }
+        },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请只回复一句：OK就完事了呗。不要解释。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 45000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_end", "timeout_ms": 70000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "latency_round_summary",
+            "tts_audio_source",
+            "sentence_start_to_first_audio_ms"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1500 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    }
+  ]
+}

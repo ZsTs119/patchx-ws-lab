@@ -71,11 +71,23 @@ server {
     root /srv/ws-lab;
     index index.html;
 
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        expires -1;
+    }
+
+    location ~* ^/(?:src|styles|modules)/.*\.(?:js|css|json)$ {
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        expires -1;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
 }
 ```
+
+发布版本会同时写入首页资源和 ES Module 导入 URL。上述响应头用于保证用户普通刷新或重新访问时重新校验首页、一方脚本和模块配置；如果前面还有 CDN 或网关，也要确保它不会覆盖这些响应头。已经打开的页面不会被强制重载。
 
 如果公司内网要求 HTTPS，推荐把 WS Lab 和目标 AI Server 通过同一个网关暴露，减少 CORS 和混合内容问题。
 
@@ -172,7 +184,18 @@ sudo bash server/deploy-sidecar.sh
 
 - 外部英语测试：`px_ext_en`，登录后锁定小精灵英语环境并自动连接。
 - 外部日语测试：`px_ext_ja`，登录后锁定小精灵日语环境并自动连接。
+- 外部中文测试：`px_ext_zh`，登录后锁定小精灵测试环境并自动连接。
 - 内部人员：使用员工姓名拼音或公司账号前缀，例如 `zhangsan`；默认进入纯净对话页，可点击“调试台”进入完整测试台。
+
+### 外部测试角色切换
+
+三个外部测试账号都可以在顶部点击“切换角色”，在小格（01）、小梦（02）、小燃（03）、小忧（04）、小慌（05）、小安（06）之间切换。首次登录默认小格；PC 顶部的 Lab 卡片和设备端“账号与设置”的 Lab 行会显示当前角色。
+
+- 角色和测试身份按外部账号分别保存在当前浏览器，不同外部账号不会共用 Device ID。
+- 选择不同角色时会结束旧会话，并生成全新的 Device ID、`user_id`、MAC 和 `trace_id`，随后自动连接该账号原本绑定的环境。
+- 选择当前角色不会断线或重新生成身份；连接失败后的“重新连接”会复用本次已生成的身份。
+- 同一浏览器的其他标签页会采用最新角色但不会自动重连，避免两个标签页同时占用同一测试身份。
+- 角色记录只属于 WS Lab 浏览器本地数据，不写入 AI Server 用户库；清除站点数据后会回到小格（01）。外部账号也不会被 URL 的 `role` 参数覆盖。
 
 如果在本地 `127.0.0.1` / `localhost` 静态服务访问，WS Lab 默认请求 `http://127.0.0.1:8787/api/ws-lab-auth`。sidecar 运行时会显示登录页；sidecar 未运行时会自动进入本地内部模式，方便开发调试。
 
@@ -301,8 +324,8 @@ WS Lab 会自动探测当前环境，并显示：
 
 1. 登录：外部测试人员选择对应账号，内部人员使用员工账号。
 2. 内部人员可选择或新增环境；外部测试人员环境由账号锁定。
-3. 内部人员可选择角色 `01` 到 `06`，必要时进入“调试台”打开“客户端”抽屉生成随机用户。
-4. 点击顶部“连接”，页面会建立 WebSocket 并发送当前 Hello；外部英语/日语账号会自动连接。
+3. 外部测试人员可点击“切换角色”；内部人员可在调试台选择角色 `01` 到 `06`，并在“客户端”抽屉生成随机用户。
+4. 点击顶部“连接”，页面会建立 WebSocket 并发送当前 Hello；三个外部测试账号登录或切换角色后会自动连接。
 5. 在底部输入文本，按 Enter 发送；Shift+Enter 换行。
 6. 点击“全双工”使用麦克风；内部调试台还可以打开音频源面板使用生成语音推流、WAV 文件推流和静音诊断流。
 7. 内部调试台可打开“协议”发送模板消息，也可打开“诊断”查看总览、轮次、日志和场景。
@@ -339,6 +362,15 @@ URL 参数：
 ```text
 https://ws-lab.internal.example.com/?ws=wss%3A%2F%2Fai.example.com%2Fws&rest=https%3A%2F%2Fai.example.com%2Fapi%2Fv1%2Fdev%2Fws-lab&role=02&autoConnect=1&scenario=role-text-smoke&autorun=1
 ```
+
+音乐资产拆成 6 份 Nacos manifest 前后，使用 `music-assets-multi-manifest` 模块验收：
+
+- `module.music-assets-multi-manifest-single-compat`：切换 multi 前先确认原单文件监听、运营 version 和播放链路完全兼容。
+- `module.music-assets-multi-manifest-health`：全局日志确认 6 个 source 均 ready、watch 已注册且 aggregate 完整发布。
+- `module.music-assets-multi-manifest-playback-contract`：用 01 角色确认 Intent V2、统一 Registry、提示语、`playmusic` 和 music 音频链路不变。
+- `module.music-assets-multi-manifest-source-key-not-routing`：受控测试中把 prefix=02 的验收歌曲维护在 source 01，确认 source key 不会覆盖 item 的人格字段。
+
+健康场景只读日志，不会写 Nacos；运行前应由运维完成六个 Data ID 发布并用 `mode=multi` 重启服务。105/115/116 完整版本回归继续配合 `hardware-unlock-efunc` 模块执行。
 
 ## 模块和场景扩展
 
@@ -382,14 +414,24 @@ export default function register(host) {
 
 当前支持的场景步骤：
 
+- `connect_ws`
+- `connect_hello`
+- `disconnect`
 - `send_json`
+- `send_hello`
 - `send_text`
 - `wait_ws`
 - `expect_no_ws`
 - `expect_binary`
+- `expect_conversation_contains`
+- `expect_connection_state`
 - `set_audio_profile`
 - `stream_silence`
 - `log_summary`
+- `log_expect`
+- `log_expect_absent`
+- `rest_request`
+- `expect_rest`
 
 ## 常见问题
 

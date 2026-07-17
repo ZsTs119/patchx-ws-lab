@@ -1,0 +1,72 @@
+{
+  "id": "local-music-tts-start-compat",
+  "name": "本地音乐 TTS start 兼容补发",
+  "area": "音频链路",
+  "version": "1.0.0",
+  "description": "验证本地音乐在 playmusic 控制消息后，会补发 tts start(music)，再进入 sentence_start、二进制音频和 stop。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.local-music-tts-start-compat-random",
+      "label": "音乐 · 泛化唱歌 lifecycle",
+      "description": "发送泛化唱歌请求，验收 playmusic 后出现 tts start(music)、sentence_start(music)、二进制音频和 stop(music)。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "给我唱首歌" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload_text_non_empty": true, "timeout_ms": 60000 },
+        { "action": "wait_ws", "type": "playmusic", "payload": { "tts_type": "music", "state": "start" }, "timeout_ms": 90000 },
+        { "action": "wait_ws", "type": "tts", "state": "start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "expect_binary", "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "payload": { "tts_type": "music" }, "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "tts|start_sent",
+            "tts_type=music",
+            "tts|audio_pacing_summary"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.local-music-tts-start-compat-specified",
+      "label": "音乐 · 指定歌曲 lifecycle",
+      "description": "发送指定歌曲请求，验收指定歌曲命中后本地音乐同样补发 tts start(music)，且有二进制音频下发。",
+      "stability": "beta",
+      "suite": "feature",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_text", "text": "请播放歌曲小花仙主题曲" },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload_text_non_empty": true, "timeout_ms": 60000 },
+        { "action": "wait_ws", "type": "playmusic", "payload": { "tts_type": "music", "state": "start" }, "timeout_ms": 90000 },
+        { "action": "wait_ws", "type": "tts", "state": "start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "payload": { "tts_type": "music" }, "timeout_ms": 10000 },
+        { "action": "expect_binary", "timeout_ms": 10000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "payload": { "tts_type": "music" }, "timeout_ms": 90000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "music_search source=v2_cmd",
+            "query=小花仙主题曲",
+            "result=hit",
+            "tts|start_sent",
+            "tts_type=music"
+          ],
+          "timeout_ms": 90000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "id": "reconnect-resume-history-ttl",
+  "name": "断线续聊 Redis TTL",
+  "area": "重连",
+  "version": "1.0.0",
+  "description": "验证断线续聊 raw history、meta、用户索引写入 Redis 后带有 24 小时默认滑动 TTL，并且短时间重连仍能恢复上下文。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.reconnect-resume-history-ttl",
+      "label": "断线续聊 · Redis TTL",
+      "description": "先创建一轮可恢复 raw history，再通过 dev Redis 探针确认 raw/meta/index 的 TTL 均大于 0 且默认 TTL 为 86400 秒；随后同身份重连，确认 history 仍可恢复。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "这是断线续聊 Redis TTL 的验收消息，请用一句话自然回应我。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 70000 },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        {
+          "action": "rest_request",
+          "method": "GET",
+          "path": "/api/v1/dev/ws-lab/redis/resume-history?device_id={{device_id}}&user_id={{user_id}}",
+          "expect_status": 200,
+          "expect_json": {
+            "code": 200,
+            "data.ok": true,
+            "data.ttl_default_seconds": 86400,
+            "data.exists.raw": true,
+            "data.exists.meta": true,
+            "data.exists.index": true
+          },
+          "expect_number_min": {
+            "data.ttl.raw": 1,
+            "data.ttl.meta": 1,
+            "data.ttl.index": 1
+          },
+          "timeout_ms": 12000
+        },
+        { "action": "disconnect", "wait_ms": 800 },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "hardware" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "resume_history|restored",
+            "post_hello_features|resumed_history"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "rest_request",
+          "method": "GET",
+          "path": "/api/v1/dev/ws-lab/redis/resume-history?device_id={{device_id}}&user_id={{user_id}}",
+          "expect_status": 200,
+          "expect_number_min": {
+            "data.ttl.raw": 1,
+            "data.ttl.meta": 1,
+            "data.ttl.index": 1
+          },
+          "timeout_ms": 12000
+        },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

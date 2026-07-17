@@ -1,0 +1,61 @@
+{
+  "id": "asr-realtime-idle-finalize",
+  "name": "ASR Realtime Idle 收口",
+  "area": "音频",
+  "version": "1.0.0",
+  "description": "验证 realtime 模式下客户端不发送 listen:stop 且不持续补静音时，Doubao 自然 definite 或服务端 idle finalize 都能完成 ASR/LLM/TTS 主流程闭环。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.asr-realtime-idle-finalize-no-listen-stop",
+      "label": "ASR · Realtime idle 受控静音收口",
+      "description": "使用 60ms PCM 上行真实中文语音，故意不发送 listen:stop、不发送尾部静音，确认 Doubao 自然 definite 或服务端 idle finalize 都能最终输出 stt/TTS。",
+      "stability": "strict",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 60 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "stream_tts",
+          "text": "你好，请帮我简单介绍一下今天适合做什么。",
+          "duration_ms": 1600,
+          "trailing_silence_ms": 0,
+          "send_listen_stop": false,
+          "require_speech": true,
+          "min_outbound_binary": 8,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 },
+            { "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+            { "kind": "binary", "direction": "server", "timeout_ms": 45000 }
+          ]
+        },
+        { "action": "log_summary", "min_milestone": "asr" },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_finalize|trigger",
+            "[ASR] 最终识别结果(definite=true)",
+            "🎤 ASR识别结果"
+          ],
+          "timeout_ms": 30000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_finalize|tail_silence_send",
+            "asr_finalize|definite_after_silence",
+            "asr_finalize|fallback_consume",
+            "[ASR] 最终识别结果(definite=true)"
+          ],
+          "timeout_ms": 30000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 },
+        { "action": "send_json", "payload": { "type": "listen", "state": "stop", "mode": "manual", "source": "scenario-cleanup" } }
+      ]
+    }
+  ]
+}

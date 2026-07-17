@@ -1,0 +1,107 @@
+{
+  "id": "smart-interrupt-asr-finalize",
+  "name": "智能打断 ASR 收尾",
+  "area": "Core",
+  "version": "1.0.0",
+  "description": "验证智能打断场景下 ASR 文本消费、录音收尾和主流程恢复不会悬挂；覆盖 partial 轻打断后 definite/no-final 兜底的日志证据。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.smart-interrupt-asr-finalize-main-flow",
+      "label": "智能打断 · ASR 收尾与主流程恢复",
+      "description": "先制造一段较长 TTS 播放，再注入用户插话打断，要求服务端出现智能打断/ASR finalize 相关日志，并验证后续文本轮仍能正常回复和播放。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "请你慢慢讲一个比较长的故事，内容要足够长，方便我在播放过程中打断你。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        {
+          "action": "stream_tts",
+          "text": "先停一下，我想换个问题，你听到我刚刚说的话了吗。",
+          "duration_ms": 2600,
+          "trailing_silence_ms": 1800,
+          "require_speech": true,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 45000 }
+          ]
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_finalize|done action=process reason=smart_interrupt_partial_definite_process",
+            "asr_finalize|done action=process reason=smart_interrupt_partial_no_final_timeout",
+            "asr_finalize|done action=process reason=smart_interrupt_state_changed_process",
+            "asr_finalize|done action=suppress reason=smart_interrupt_suppressed",
+            "asr_finalize|done action=suppress reason=smart_interrupt_fail_closed",
+            "smart_interrupt|definite_after_light_stop_process",
+            "smart_interrupt|partial_no_final_timeout",
+            "smart_interrupt|suppressed"
+          ],
+          "timeout_ms": 90000
+        },
+        {
+          "action": "send_text",
+          "text": "只回复四个字：流程正常。"
+        },
+        { "action": "wait_ws", "type": "tts", "state": "sentence_start", "timeout_ms": 90000 },
+        { "action": "expect_binary", "timeout_ms": 45000 },
+        { "action": "wait_ws", "type": "tts", "state": "stop", "reason": "complete", "timeout_ms": 120000 },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    },
+    {
+      "id": "module.smart-interrupt-asr-finalize-listen-stop",
+      "label": "监听停止 · 残余 ASR 收尾",
+      "description": "在 listen_mode 关闭后短暂继续推送语音，验证残余 ASR 回调不会进入主流程，并通过 asr_finalize 日志确认门闩路径已消费/丢弃收尾。",
+      "stability": "beta",
+      "suite": "regression",
+      "auto_connect": false,
+      "steps": [
+        { "action": "set_audio_profile", "profile": { "format": "pcm", "sample_rate": 24000, "frame_duration": 40 } },
+        { "action": "connect_ws" },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "send_json", "payload": { "type": "listen_mode", "action": "start", "session_type": "transcription" } },
+        { "action": "wait_ws", "type": "listen_mode", "payload": { "action": "start" }, "timeout_ms": 5000 },
+        {
+          "action": "stream_tts",
+          "text": "这是监听停止前的一段测试语音。",
+          "duration_ms": 1600,
+          "require_speech": true,
+          "expect_during": [
+            { "type": "stt", "timeout_ms": 30000 }
+          ]
+        },
+        { "action": "send_json", "payload": { "type": "listen_mode", "action": "end", "session_type": "transcription" } },
+        { "action": "wait_ws", "type": "listen_mode", "payload": { "action": "end" }, "timeout_ms": 5000 },
+        { "action": "wait", "timeout_ms": 300 },
+        {
+          "action": "stream_tts",
+          "text": "这段是停止后的残余声音，不应该进入主流程。",
+          "duration_ms": 1000,
+          "require_speech": true
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "asr_finalize|done action=suppress reason=listen_stop_residual_suppressed",
+            "OnAsrResult: 门闩已设置，忽略残余回调",
+            "asr_release.listen_stop"
+          ],
+          "timeout_ms": 45000
+        },
+        { "action": "expect_no_ws", "type": "service_status", "payload": { "status": "failed" }, "timeout_ms": 1000 },
+        { "action": "expect_no_ws", "type": "goodbye", "timeout_ms": 1000 }
+      ]
+    }
+  ]
+}

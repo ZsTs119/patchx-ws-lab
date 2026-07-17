@@ -1,0 +1,118 @@
+{
+  "id": "goodbye-delay-normal-exit",
+  "name": "Goodbye Delay 正常退出",
+  "area": "连接生命周期",
+  "version": "1.0.0",
+  "description": "验证正常退出告别语播放完成后，goodbye 按 exit.goodbye_delay 下发，而不是等待退出守护定时器兜底。本场景验证正常退出协议时序，不验证 transport close goodbye。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.goodbye-delay-normal-exit",
+      "label": "正常退出 · goodbye_delay 生效",
+      "description": "前置条件：本地或目标环境 effective config 需设置 exit.goodbye_delay=\"1s\"。场景发送“拜拜。”触发 Intent V2 / local_exit，记录 sentence_end_to_goodbye_ms，并断言该间隔不超过 2 秒。",
+      "stability": "beta",
+      "suite": "feature",
+      "precondition": "exit.goodbye_delay=\"1s\"；使用 Intent V2；Dev REST 日志能力可用时会额外断言没有退出守护定时器兜底。",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "拜拜。"
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload_text_contains": "回帕奇星系",
+          "timeout_ms": 70000
+        },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_end",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "stop",
+          "reason": "complete",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "expect_ws_interval",
+          "from": { "type": "tts", "state": "sentence_end" },
+          "to": { "type": "goodbye" },
+          "max_ms": 2000,
+          "timeout_ms": 8000,
+          "note_key": "sentence_end_to_goodbye_ms"
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "用户请求退出对话（MCP），使用固定告别语",
+            "exit_goodbye|farewell_mark",
+            "exit_goodbye|farewell_complete",
+            "TTS音频已投递给网关，准备发送goodbye消息",
+            "告别语播放完成，等待 1s 后发送goodbye"
+          ],
+          "timeout_ms": 120000
+        },
+        {
+          "action": "log_expect_absent",
+          "keywords": [
+            "退出守护定时器触发，TTS可能失败/跳过，强制关闭连接"
+          ],
+          "timeout_ms": 1200
+        }
+      ]
+    },
+    {
+      "id": "module.goodbye-delay-normal-exit-zero-delay",
+      "label": "正常退出 · goodbye_delay=0",
+      "description": "可选场景。前置条件：effective config 设置 exit.goodbye_delay=\"0\" 或为空。用于验证 sentence_end 后尽快下发 goodbye。",
+      "stability": "manual",
+      "suite": "feature",
+      "precondition": "exit.goodbye_delay=\"0\" 或未配置；使用 Intent V2。",
+      "auto_connect": false,
+      "steps": [
+        { "action": "connect_hello", "timeout_ms": 12000 },
+        {
+          "action": "send_text",
+          "text": "拜拜。"
+        },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_start",
+          "payload_text_contains": "回帕奇星系",
+          "timeout_ms": 70000
+        },
+        { "action": "expect_binary", "timeout_ms": 30000 },
+        {
+          "action": "wait_ws",
+          "type": "tts",
+          "state": "sentence_end",
+          "timeout_ms": 90000
+        },
+        {
+          "action": "expect_ws_interval",
+          "from": { "type": "tts", "state": "sentence_end" },
+          "to": { "type": "goodbye" },
+          "max_ms": 1200,
+          "timeout_ms": 5000,
+          "note_key": "sentence_end_to_goodbye_ms"
+        },
+        {
+          "action": "log_expect_absent",
+          "keywords": [
+            "退出守护定时器触发，TTS可能失败/跳过，强制关闭连接"
+          ],
+          "timeout_ms": 1200
+        }
+      ]
+    }
+  ]
+}

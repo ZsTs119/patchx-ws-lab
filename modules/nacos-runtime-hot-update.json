@@ -1,0 +1,86 @@
+{
+  "id": "nacos-runtime-hot-update",
+  "name": "Nacos Runtime 热更新",
+  "area": "配置中心",
+  "version": "1.0.0",
+  "description": "验收 Nacos 主配置或 character_prompts.yaml 更新后，普通 WebSocket 新连接切换到 config-only runtime generation；provider/资源池字段仍保持当前 runtime 值。",
+  "actions": [],
+  "scenarios": [
+    {
+      "id": "module.nacos-runtime-hot-update.new-connection",
+      "label": "Nacos · 新连接热更新",
+      "description": "先在 Nacos 发布 config.yaml 或 character_prompts.yaml 的安全字段变更，例如 common_prompt / l0_default_instruction；再运行本场景，确认服务端完成 safe apply、generation swap，并通过普通根路径 WS 重连。",
+      "stability": "strict",
+      "suite": "ops",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "log_expect",
+          "keywords": [
+            "=== Nacos 配置热更新触发",
+            "nacos_runtime|apply",
+            "apply_scope=new_connections"
+          ],
+          "timeout_ms": 60000
+        },
+        {
+          "action": "log_expect",
+          "keywords": [
+            "llm_runtime|generation_swap",
+            "apply_scope=new_connections"
+          ],
+          "timeout_ms": 60000
+        },
+        {
+          "action": "connect_ws",
+          "path": "/"
+        },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "nacos_runtime|preserved",
+            "客户端连接已建立"
+          ],
+          "timeout_ms": 20000
+        },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    },
+    {
+      "id": "module.nacos-runtime-hot-update.restart-required",
+      "label": "Nacos · 资源池字段冻结",
+      "description": "在同一次 Nacos 发布中同时修改 common_prompt 和 provider/资源池字段，例如 LLM.*.api_key 或 resource_pool.llm.max_size；运行本场景确认新连接 generation 生效，同时日志提示 provider/资源池字段被保留，需要重启或专用 runtime API。",
+      "stability": "strict",
+      "suite": "ops",
+      "auto_connect": false,
+      "steps": [
+        {
+          "action": "log_expect",
+          "keywords": [
+            "nacos_runtime|apply",
+            "apply_scope=new_connections"
+          ],
+          "timeout_ms": 60000
+        },
+        {
+          "action": "log_expect",
+          "any_keywords": [
+            "LLM preserved from current runtime",
+            "ResourcePool preserved from current runtime",
+            "SelectedModule preserved from current runtime"
+          ],
+          "timeout_ms": 60000
+        },
+        {
+          "action": "connect_ws",
+          "path": "/"
+        },
+        { "action": "send_hello", "set": { "client_source": "app" } },
+        { "action": "wait_ws", "type": "hello", "timeout_ms": 12000 },
+        { "action": "disconnect", "wait_ms": 300 }
+      ]
+    }
+  ]
+}
